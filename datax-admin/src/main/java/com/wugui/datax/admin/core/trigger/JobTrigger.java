@@ -1,11 +1,15 @@
 package com.wugui.datax.admin.core.trigger;
 
+import com.alibaba.druid.pool.DruidDataSource;
+import com.alibaba.fastjson.JSONArray;
+import com.alibaba.fastjson.JSONObject;
 import com.wugui.datatx.core.biz.ExecutorBiz;
 import com.wugui.datatx.core.biz.model.ReturnT;
 import com.wugui.datatx.core.biz.model.TriggerParam;
 import com.wugui.datatx.core.enums.ExecutorBlockStrategyEnum;
 import com.wugui.datatx.core.enums.IncrementTypeEnum;
 import com.wugui.datatx.core.glue.GlueTypeEnum;
+import com.wugui.datax.admin.canal.DataSourceFactory;
 import com.wugui.datax.admin.core.conf.JobAdminConfig;
 import com.wugui.datax.admin.core.route.ExecutorRouteStrategyEnum;
 import com.wugui.datax.admin.core.scheduler.JobScheduler;
@@ -16,6 +20,7 @@ import com.wugui.datax.admin.entity.JobInfo;
 import com.wugui.datax.admin.entity.JobLog;
 import com.wugui.datax.admin.tool.query.BaseQueryTool;
 import com.wugui.datax.admin.tool.query.QueryToolFactory;
+import com.wugui.datax.admin.util.AESUtil;
 import com.wugui.datax.admin.util.JSONUtils;
 import com.wugui.datax.rpc.util.IpUtil;
 import com.wugui.datax.rpc.util.ThrowableUtil;
@@ -50,11 +55,16 @@ public class JobTrigger {
             logger.warn(">>>>>>>>>>>> trigger fail, jobId invalid，jobId={}", jobId);
             return;
         }
+
+        initCanal(jobInfo);
+
         if (GlueTypeEnum.BEAN.getDesc().equals(jobInfo.getGlueType())) {
             //解密账密
             String json = JSONUtils.changeJson(jobInfo.getJobJson(), JSONUtils.decrypt);
             jobInfo.setJobJson(json);
         }
+
+
         if (StringUtils.isNotBlank(executorParam)) {
             jobInfo.setExecutorParam(executorParam);
         }
@@ -84,6 +94,72 @@ public class JobTrigger {
             processTrigger(group, jobInfo, finalFailRetryCount, triggerType, shardingParam[0], shardingParam[1]);
         }
 
+    }
+
+    /**
+     * @param jobInfo
+     */
+    public static void initCanal(JobInfo jobInfo) {
+        String encryptJobJson = jobInfo.getJobJson();
+        JSONObject jsonObj = JSONObject.parseObject(encryptJobJson);
+        JSONObject jobJson = jsonObj.getJSONObject("job");
+        JSONArray contents = jobJson.getJSONArray("content");
+        JSONObject content = (JSONObject) contents.get(0);
+
+        // 获取到写入的库table 丢给canal一个增量同步任务
+        // writer
+        JSONObject writer = content.getJSONObject("writer");
+        JSONObject writerParam = writer.getJSONObject("parameter");
+
+        String username = writerParam.getString("username");
+        username = AESUtil.decrypt(username);
+        String password = writerParam.getString("password");
+        password = AESUtil.decrypt(password);
+        JSONArray writerConnections = writerParam.getJSONArray("connection");
+        JSONObject writerConnectionJsonObj = (JSONObject) writerConnections.get(0);
+        String writeTable = (String)writerConnectionJsonObj.getJSONArray("table").get(0);
+        String jdbcUrl = writerConnectionJsonObj.getString("jdbcUrl");
+        DruidDataSource druidDataSource = new DruidDataSource();
+        druidDataSource.setUrl(jdbcUrl);
+        druidDataSource.setUsername(username);
+        druidDataSource.setPassword(password);
+        String dataBase = jdbcUrl.replaceAll("jdbc:mysql://.*?:.*?/(.*?)\\?.*", "$1");
+
+        // reader
+        JSONObject reader = content.getJSONObject("reader");
+        JSONObject readerParam = reader.getJSONObject("parameter");
+        JSONArray readerConnections = readerParam.getJSONArray("connection");
+        JSONObject readerConnectionJsonObj = (JSONObject) readerConnections.get(0);
+        String readerTable = (String)readerConnectionJsonObj.getJSONArray("table").get(0);
+
+        // 写入的时表名可能不一样
+        DataSourceFactory.instance().putConvert(readerTable, writeTable);
+        // canal监听的库和表
+        String dataBaseTable = dataBase + "__" + readerTable;
+        Long canalTimestamp = jobInfo.getCanalTimestamp();
+        // 重启初始化
+        if (canalTimestamp != null) {
+            DataSourceFactory.instance().addNewTask(dataBaseTable, druidDataSource, canalTimestamp);
+            return;
+        }
+        // 首次初始化
+        long initTimestamp = System.currentTimeMillis();
+        // 添加新的canal任务
+        DataSourceFactory.instance().addNewTask(dataBaseTable, druidDataSource, initTimestamp);
+
+        // 添加 创建时间的where 语句 并保存起来
+        String whereClause = "create_time < " + initTimestamp;
+        readerParam.put("where", whereClause);
+
+        reader.put("parameter", readerParam);
+        content.put("reader", reader);
+
+        jobInfo.setCanalTimestamp(initTimestamp);
+        contents.add(0, content);
+        jobJson.put("content", contents);
+        jsonObj.put("job", jobJson);
+        jobInfo.setJobJson(jsonObj.toJSONString());
+        JobAdminConfig.getAdminConfig().getJobInfoMapper().update(jobInfo);
     }
 
     private static boolean isNumeric(String str) {

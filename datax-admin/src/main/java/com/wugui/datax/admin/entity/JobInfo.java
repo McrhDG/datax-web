@@ -122,4 +122,9 @@ public class JobInfo {
 
 	@TableField(exist=false)
 	private String userName;
+
+	/**
+	 * canal初始化时间戳
+	 */
+	private Long canalTimestamp;
 }

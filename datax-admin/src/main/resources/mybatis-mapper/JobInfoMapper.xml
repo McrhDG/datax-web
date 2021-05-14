@@ -52,6 +52,7 @@
 		<result column="inc_start_id" property="incStartId" />
 		<result column="increment_type" property="incrementType" />
 		<result column="datasource_id" property="datasourceId" />
+		<result column="canal_timestamp" property="canalTimestamp" />
 	</resultMap>
 
 	<sql id="Base_Column_List">
@@ -89,7 +90,8 @@
 		t.primary_key,
 		t.inc_start_id,
 		t.increment_type,
-		t.datasource_id
+		t.datasource_id,
+		t.canal_timestamp
 	</sql>
 
 	<sql id="Project_Column_List">
@@ -198,6 +200,7 @@
 			primary_key,
 			inc_start_id,
 			increment_type,
+			canal_timestamp,
 			datasource_id
 		) VALUES (
 			#{jobGroup},
@@ -233,6 +236,7 @@
 			#{primaryKey},
 			#{incStartId},
 			#{incrementType},
+			#{canalTimestamp},
 			#{datasourceId}
 		);
 		<!--<selectKey resultType="java.lang.Integer" order="AFTER" keyProperty="id">
@@ -282,7 +286,8 @@
 		    primary_key = #{primaryKey},
 		    inc_start_id = #{incStartId},
 		    increment_type = #{incrementType},
-		    datasource_id= #{datasourceId}
+		    datasource_id= #{datasourceId},
+			canal_timestamp= #{canalTimestamp}
 		WHERE id = #{id}
 	</update>
 
@@ -296,6 +301,12 @@
 		SELECT <include refid="Base_Column_List" />
 		FROM job_info AS t
 		WHERE t.job_group = #{jobGroup}
+	</select>
+
+	<select id="findInitCanal" resultMap="JobProject">
+		SELECT <include refid="Base_Column_List" />
+		FROM job_info AS t
+		WHERE t.canal_timestamp > 0
 	</select>
 
 	<select id="findAllCount" resultType="int">
@@ -342,4 +353,5 @@
 		inc_start_id = #{incStartId}
 		WHERE id = #{id}
 	</update>
+
 </mapper>
