@@ -4,6 +4,12 @@
 ![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/WeiYe-Jing/datax-web)
 ![](https://img.shields.io/badge/qq%E7%BE%A4-795380631-green.svg)
 
+# 修改说明:
+该分支在原有功能基础上添加了基于canal的mysql增量数据同步的功能:  
+1. datax-admin的界面执行任务的时候会先创建一个基于创建时间字段(create_time)时间戳的canal增量同步任务
+2. 然后datax再同步创建时间小于这个时间戳的历史存量数据
+3. 当datax同步完存量数据之后canal再将记录的更改重放,最后进入增量同步持续运行.这个过程全是自动.
+
 # DataX-Web
 
 DataX Web是在DataX之上开发的分布式数据同步工具，提供简单易用的

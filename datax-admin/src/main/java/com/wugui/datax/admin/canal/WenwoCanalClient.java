@@ -295,6 +295,9 @@ public class WenwoCanalClient implements SmartInitializingSingleton {
                 // 数据去向
                 tableName = DataSourceFactory.instance().convertTableName(tableName);
                 Long initTimestamp = DataSourceFactory.instance().getInitTimestamp(dataBaseTable);
+                if (executeTime < initTimestamp) {
+                    continue;
+                }
                 for (RowData rowData : rowDatasList) {
                     if (eventType == EventType.DELETE) {
                         printColumn(rowData.getBeforeColumnsList());
