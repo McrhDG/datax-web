@@ -63,8 +63,6 @@ public class JobTrigger {
             String json = JSONUtils.changeJson(jobInfo.getJobJson(), JSONUtils.decrypt);
             jobInfo.setJobJson(json);
         }
-
-
         if (StringUtils.isNotBlank(executorParam)) {
             jobInfo.setExecutorParam(executorParam);
         }

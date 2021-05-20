@@ -1,5 +1,6 @@
 package com.wugui.datax.admin;
 
+import com.ctrip.framework.apollo.spring.annotation.EnableApolloConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
@@ -13,6 +14,7 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 
 @EnableSwagger2
+@EnableApolloConfig
 @SpringBootApplication(exclude = {MongoAutoConfiguration.class, MongoDataAutoConfiguration.class})
 public class DataXAdminApplication {
 

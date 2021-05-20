@@ -64,7 +64,7 @@ public class WenwoCanalClient implements SmartInitializingSingleton {
     @Value("${canal.server.address:10.200.0.225}")
     private String canalServerAddress;
 
-    @Value("${canal.server.port:11110}")
+    @Value("${canal.server.port:11111}")
     private int canalServerPort;
 
     @Value("${canal.username:canal}")
@@ -100,7 +100,7 @@ public class WenwoCanalClient implements SmartInitializingSingleton {
 
     @Override
     public void afterSingletonsInstantiated() {
-        connector = CanalConnectors.newSingleConnector(new InetSocketAddress("10.200.0.225", 11111),
+        connector = CanalConnectors.newSingleConnector(new InetSocketAddress(canalServerAddress, canalServerPort),
                     destination, canalUsername, canalPassword);
         ThreadPoolExecutor canalWorkerThead = new ThreadPoolExecutor(1, 1, 60 * 60, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), r -> {
             Thread thread = new Thread(r);

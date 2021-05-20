@@ -1,14 +1,24 @@
 server:
   port: 8080
 #  port: ${server.port}
+app.id: ${spring.application.name}
+apollo:
+  meta: http://10.200.0.3:28080
+  bootstrap:
+    namespaces: application
+    enabled: true
+    eagerLoad:
+      enabled: true
 spring:
+  application:
+    name: datax-admin
   #数据源
   datasource:
     #    username: root
     #password: root
     #url: jdbc:mysql://localhost:3306/datax_web?serverTimezone=Asia/Shanghai&useLegacyDatetimeCode=false&useSSL=false&nullNamePatternMatchesAll=true&useUnicode=true&characterEncoding=UTF-8
-    password: ${DB_PASSWORD:2DAxWffECCaNa}
     username: ${DB_USERNAME:doctor}
+    password: ${DB_PASSWORD:2DAxWffECCaNa}
     url: jdbc:mysql://${DB_HOST:10.200.0.149}:${DB_PORT:3306}/${DB_DATABASE:datax}?serverTimezone=Asia/Shanghai&useLegacyDatetimeCode=false&useSSL=false&nullNamePatternMatchesAll=true&useUnicode=true&characterEncoding=UTF-8
     driver-class-name: com.mysql.jdbc.Driver
 
@@ -85,10 +95,10 @@ mybatis-plus:
 logging:
   #level:
   #  com.wugui.datax.admin.mapper: info
-#path: ./data/applogs/admin
+  #path: ./data/applogs/admin
   level:
     com.wugui.datax.admin.mapper: error
-    path: ./data/applogs/admin
+    path: ${data.path}/applogs/admin
 
 
 

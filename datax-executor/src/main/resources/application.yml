@@ -13,8 +13,8 @@ datax:
   job:
     admin:
       ### datax admin address list, such as "http://address" or "http://address01,http://address02"
-      #addresses: http://127.0.0.1:8080
-      addresses: http://10.200.0.3:${datax.admin.port:9527}
+      addresses: http://127.0.0.1:8080
+#      addresses: http://10.200.0.3:${datax.admin.port:9527}
     executor:
       appname: datax-executor
       ip:
@@ -27,10 +27,10 @@ datax:
       logretentiondays: 30
     ### job, access token
     accessToken:
-
   executor:
-    jsonpath: E:\java\github\datax-web\datax-executor\target\
+    jsonpath: E:\java\github\datax-web\data
 #    jsonpath: ${json.path}
 
-  #pypath: F:\tools\datax\bin\datax.py E:\java\github\DataX\target\datax\datax\datax.py
-  pypath: E:\java\github\DataX\target\datax\datax\datax.py
+  pypath: E:\java\github\DataX\target\datax\datax\bin\datax.py
+
+#  pypath: ${python.path}
