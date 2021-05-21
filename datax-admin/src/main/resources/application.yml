@@ -17,9 +17,9 @@ spring:
     #    username: root
     #password: root
     #url: jdbc:mysql://localhost:3306/datax_web?serverTimezone=Asia/Shanghai&useLegacyDatetimeCode=false&useSSL=false&nullNamePatternMatchesAll=true&useUnicode=true&characterEncoding=UTF-8
-    username: ${DB_USERNAME:doctor}
-    password: ${DB_PASSWORD:2DAxWffECCaNa}
-    url: jdbc:mysql://${DB_HOST:10.200.0.149}:${DB_PORT:3306}/${DB_DATABASE:datax}?serverTimezone=Asia/Shanghai&useLegacyDatetimeCode=false&useSSL=false&nullNamePatternMatchesAll=true&useUnicode=true&characterEncoding=UTF-8
+    username: ${DB_USERNAME:wenwo}
+    password: ${DB_PASSWORD:GeP7nL26RxaoPhEe}
+    url: jdbc:mysql://${DB_HOST:10.8.2.210}:${DB_PORT:3306}/${DB_DATABASE:datax}?serverTimezone=Asia/Shanghai&useLegacyDatetimeCode=false&useSSL=false&nullNamePatternMatchesAll=true&useUnicode=true&characterEncoding=UTF-8
     driver-class-name: com.mysql.jdbc.Driver
 
 

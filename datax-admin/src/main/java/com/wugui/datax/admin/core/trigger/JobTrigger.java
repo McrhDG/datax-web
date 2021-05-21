@@ -28,6 +28,7 @@ import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 
@@ -116,24 +117,30 @@ public class JobTrigger {
         JSONArray writerConnections = writerParam.getJSONArray("connection");
         JSONObject writerConnectionJsonObj = (JSONObject) writerConnections.get(0);
         String writeTable = (String)writerConnectionJsonObj.getJSONArray("table").get(0);
-        String jdbcUrl = writerConnectionJsonObj.getString("jdbcUrl");
+        String writerJdbcUrl = writerConnectionJsonObj.getString("jdbcUrl");
         DruidDataSource druidDataSource = new DruidDataSource();
-        druidDataSource.setUrl(jdbcUrl);
+        druidDataSource.setUrl(writerJdbcUrl);
         druidDataSource.setUsername(username);
         druidDataSource.setPassword(password);
-        String dataBase = jdbcUrl.replaceAll("jdbc:mysql://.*?:.*?/(.*?)\\?.*", "$1");
 
         // reader
         JSONObject reader = content.getJSONObject("reader");
         JSONObject readerParam = reader.getJSONObject("parameter");
         JSONArray readerConnections = readerParam.getJSONArray("connection");
         JSONObject readerConnectionJsonObj = (JSONObject) readerConnections.get(0);
+        String readerJdbcUrl = writerConnectionJsonObj.getString("jdbcUrl");
         String readerTable = (String)readerConnectionJsonObj.getJSONArray("table").get(0);
+        String readerDataBase;
+        if (readerJdbcUrl.contains("?")) {
+            readerDataBase = readerJdbcUrl.replaceAll("jdbc:mysql://.*?:.*?/(.*?)\\?.*", "$1");
+        } else {
+            readerDataBase = readerJdbcUrl.replaceAll("jdbc:mysql://.*?:.*?/(.*)", "$1");
+        }
 
-        // 写入的时表名可能不一样
+        // 写入的时表名可能不一样 表名可能需要转化
         DataSourceFactory.instance().putConvert(readerTable, writeTable);
         // canal监听的库和表
-        String dataBaseTable = dataBase + "__" + readerTable;
+        String dataBaseTable = readerDataBase + "__" + readerTable;
         Long canalTimestamp = jobInfo.getCanalTimestamp();
         // 重启初始化
         if (canalTimestamp != null) {
@@ -146,7 +153,9 @@ public class JobTrigger {
         DataSourceFactory.instance().addNewTask(dataBaseTable, druidDataSource, initTimestamp);
 
         // 添加 创建时间的where 语句 并保存起来
-        String whereClause = "create_time < " + initTimestamp;
+        String initDateStr = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(initTimestamp);
+
+        String whereClause = "create_time < " + "'" + initDateStr + "'";
         readerParam.put("where", whereClause);
 
         reader.put("parameter", readerParam);
