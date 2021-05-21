@@ -286,7 +286,7 @@ public class WenwoCanalClient implements SmartInitializingSingleton {
                 printXAInfo(rowChange.getPropsList());
                 List<RowData> rowDatasList = rowChange.getRowDatasList();
                 // 数据来源
-                String dataBaseTable = dataBase + "__" + tableName;
+                String dataBaseTable = dataBase + "|" + tableName;
                 DataSource dataSource = DataSourceFactory.instance().getDataSource(dataBaseTable);
                 if (dataSource == null) {
                     logger.info("dataBase{}, tableName{} 没有配置同步数据源", dataBase, tableName);

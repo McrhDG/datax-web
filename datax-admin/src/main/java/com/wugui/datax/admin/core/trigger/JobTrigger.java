@@ -128,7 +128,7 @@ public class JobTrigger {
         JSONObject readerParam = reader.getJSONObject("parameter");
         JSONArray readerConnections = readerParam.getJSONArray("connection");
         JSONObject readerConnectionJsonObj = (JSONObject) readerConnections.get(0);
-        String readerJdbcUrl = writerConnectionJsonObj.getString("jdbcUrl");
+        String readerJdbcUrl = (String)readerConnectionJsonObj.getJSONArray("jdbcUrl").get(0);
         String readerTable = (String)readerConnectionJsonObj.getJSONArray("table").get(0);
         String readerDataBase;
         if (readerJdbcUrl.contains("?")) {
@@ -140,7 +140,7 @@ public class JobTrigger {
         // 写入的时表名可能不一样 表名可能需要转化
         DataSourceFactory.instance().putConvert(readerTable, writeTable);
         // canal监听的库和表
-        String dataBaseTable = readerDataBase + "__" + readerTable;
+        String dataBaseTable = readerDataBase + "|" + readerTable;
         Long canalTimestamp = jobInfo.getCanalTimestamp();
         // 重启初始化
         if (canalTimestamp != null) {
