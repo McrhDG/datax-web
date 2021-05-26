@@ -1,6 +1,7 @@
 package com.wugui.datax.admin.canal;
 
 import cn.hutool.core.collection.CollectionUtil;
+import com.alibaba.druid.pool.DruidDataSource;
 import com.alibaba.otter.canal.client.CanalConnector;
 import com.alibaba.otter.canal.client.CanalConnectors;
 import com.alibaba.otter.canal.protocol.CanalEntry.Column;
@@ -33,6 +34,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Types;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -268,8 +270,8 @@ public class WenwoCanalClient implements SmartInitializingSingleton {
                         entry.getHeader().getExecuteTime(), simpleDateFormat.format(date),
                         entry.getHeader().getGtid(), delayTime);
 
+                String sql = rowChange.getSql();
                 if (eventType == EventType.QUERY || rowChange.getIsDdl()) {
-                    String sql = rowChange.getSql();
                     logger.info(" sql ----> " + sql + SEP);
                     // 特殊处理
                     if (sql.contains("medic_courses_info") || sql.contains("medic_series_info")) {
@@ -287,7 +289,7 @@ public class WenwoCanalClient implements SmartInitializingSingleton {
                 List<RowData> rowDatasList = rowChange.getRowDatasList();
                 // 数据来源
                 String dataBaseTable = dataBase + "|" + tableName;
-                DataSource dataSource = DataSourceFactory.instance().getDataSource(dataBaseTable);
+                DruidDataSource dataSource = DataSourceFactory.instance().getDataSource(dataBaseTable);
                 if (dataSource == null) {
                     logger.info("dataBase{}, tableName{} 没有配置同步数据源", dataBase, tableName);
                     return;
@@ -298,7 +300,17 @@ public class WenwoCanalClient implements SmartInitializingSingleton {
                 if (executeTime < initTimestamp) {
                     continue;
                 }
+
                 for (RowData rowData : rowDatasList) {
+                    if (sql.startsWith("ALTER TABLE") || sql.startsWith("CREATE TABLE")) {
+                        String url = dataSource.getUrl();
+                        url = url.substring(0, url.indexOf("?"));
+                        String  toDataBase = url.replaceAll("jdbc:mysql://.*?:.*?/(.*)", "$1");
+                        sql = sql.replace(dataBase, toDataBase);
+                        executeSql(dataSource, sql);
+                        continue;
+                    }
+
                     if (eventType == EventType.DELETE) {
                         printColumn(rowData.getBeforeColumnsList());
                         deleteColumn(rowData.getBeforeColumnsList(), tableName, dataSource);
@@ -310,6 +322,26 @@ public class WenwoCanalClient implements SmartInitializingSingleton {
                         updateColumn(rowData.getAfterColumnsList(), tableName, dataSource);
                     }
                 }
+            }
+        }
+    }
+
+
+    private void executeSql(DataSource dataSource, String sql) {
+        Connection connection = null;
+        try {
+            connection = dataSource.getConnection();
+            Statement statement = connection.createStatement();
+            boolean execute = statement.execute(sql);
+            System.out.println(execute);
+        } catch (Exception e) {
+            logger.error("error,columns.size:", e);
+        } finally {
+            try {
+                assert connection != null;
+                connection.close();
+            } catch (SQLException e) {
+                logger.error("close Exception", e);
             }
         }
     }

@@ -1,5 +1,6 @@
 package com.wugui.datax.admin.canal;
 
+import com.alibaba.druid.pool.DruidDataSource;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.sql.DataSource;
@@ -30,7 +31,7 @@ public class DataSourceFactory {
     /**
      * 数据源缓存
      */
-    private final ConcurrentMap<String, DataSource> dataSourceCache = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, DruidDataSource> dataSourceCache = new ConcurrentHashMap<>();
 
     private final ConcurrentMap<String, Long> taskInitTimeStamp = new ConcurrentHashMap<>();
 
@@ -40,7 +41,7 @@ public class DataSourceFactory {
      * @param dataBaseTable
      * @return 数据写入的DataSource
      */
-    public DataSource getDataSource(String dataBaseTable) {
+    public DruidDataSource getDataSource(String dataBaseTable) {
         return dataSourceCache.get(dataBaseTable);
     }
 
@@ -49,11 +50,11 @@ public class DataSourceFactory {
     }
 
     /**
-     *  @param dataBaseTable 数据来源库的:  库名 __ 表名
+     *  @param dataBaseTable 数据来源库的:  库名 | 表名
      * @param dataSource 数据写入库的:  dataSource
      * @param timestamp  canal初始化的时间
      */
-    public void addNewTask(String dataBaseTable, DataSource dataSource, Long timestamp) {
+    public void addNewTask(String dataBaseTable, DruidDataSource dataSource, Long timestamp) {
         dataSourceCache.put(dataBaseTable, dataSource);
         taskInitTimeStamp.put(dataBaseTable, timestamp);
     }
