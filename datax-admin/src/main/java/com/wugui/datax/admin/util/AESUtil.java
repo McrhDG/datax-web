@@ -2,6 +2,7 @@ package com.wugui.datax.admin.util;
 
 import com.wugui.datax.admin.core.conf.JobAdminConfig;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang.StringUtils;
 
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -16,8 +17,8 @@ import java.util.Base64;
 @Slf4j
 public class AESUtil {
 
-    private static String DEFAULT_CIPHER_ALGORITHM = "SHA1PRNG";
-    private static String KEY_ALGORITHM = "AES";
+    private static final String DEFAULT_CIPHER_ALGORITHM = "SHA1PRNG";
+    private static final String KEY_ALGORITHM = "AES";
 
     /**
      * 加密
@@ -89,6 +90,9 @@ public class AESUtil {
     }
 
     public static String decrypt(String ciphertext) {
+        if (StringUtils.isBlank(ciphertext)) {
+            return null;
+        }
         try {
             KeyGenerator keygen = getKeyGenerator();
             SecretKey secretKey = new SecretKeySpec(keygen.generateKey().getEncoded(), KEY_ALGORITHM);

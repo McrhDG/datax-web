@@ -1,26 +1,22 @@
 package com.wugui.datax.admin.core.trigger;
 
-import com.alibaba.druid.pool.DruidDataSource;
-import com.alibaba.fastjson.JSONArray;
-import com.alibaba.fastjson.JSONObject;
 import com.wugui.datatx.core.biz.ExecutorBiz;
 import com.wugui.datatx.core.biz.model.ReturnT;
 import com.wugui.datatx.core.biz.model.TriggerParam;
 import com.wugui.datatx.core.enums.ExecutorBlockStrategyEnum;
 import com.wugui.datatx.core.enums.IncrementTypeEnum;
 import com.wugui.datatx.core.glue.GlueTypeEnum;
-import com.wugui.datax.admin.canal.DataSourceFactory;
 import com.wugui.datax.admin.core.conf.JobAdminConfig;
 import com.wugui.datax.admin.core.route.ExecutorRouteStrategyEnum;
 import com.wugui.datax.admin.core.scheduler.JobScheduler;
 import com.wugui.datax.admin.core.util.I18nUtil;
+import com.wugui.datax.admin.core.util.IncrementUtil;
 import com.wugui.datax.admin.entity.JobDatasource;
 import com.wugui.datax.admin.entity.JobGroup;
 import com.wugui.datax.admin.entity.JobInfo;
 import com.wugui.datax.admin.entity.JobLog;
 import com.wugui.datax.admin.tool.query.BaseQueryTool;
 import com.wugui.datax.admin.tool.query.QueryToolFactory;
-import com.wugui.datax.admin.util.AESUtil;
 import com.wugui.datax.admin.util.JSONUtils;
 import com.wugui.datax.rpc.util.IpUtil;
 import com.wugui.datax.rpc.util.ThrowableUtil;
@@ -28,7 +24,6 @@ import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 
@@ -57,7 +52,8 @@ public class JobTrigger {
             return;
         }
 
-        initCanal(jobInfo);
+        //增量数据处理
+        IncrementUtil.initIncrementData(jobInfo);
 
         if (GlueTypeEnum.BEAN.getDesc().equals(jobInfo.getGlueType())) {
             //解密账密
@@ -93,80 +89,6 @@ public class JobTrigger {
             processTrigger(group, jobInfo, finalFailRetryCount, triggerType, shardingParam[0], shardingParam[1]);
         }
 
-    }
-
-    /**
-     * @param jobInfo
-     */
-    public static void initCanal(JobInfo jobInfo) {
-        String encryptJobJson = jobInfo.getJobJson();
-        JSONObject jsonObj = JSONObject.parseObject(encryptJobJson);
-        JSONObject jobJson = jsonObj.getJSONObject("job");
-        JSONArray contents = jobJson.getJSONArray("content");
-        JSONObject content = (JSONObject) contents.get(0);
-
-        // 获取到写入的库table 丢给canal一个增量同步任务
-        // writer
-        JSONObject writer = content.getJSONObject("writer");
-        JSONObject writerParam = writer.getJSONObject("parameter");
-
-        String username = writerParam.getString("username");
-        username = AESUtil.decrypt(username);
-        String password = writerParam.getString("password");
-        password = AESUtil.decrypt(password);
-        JSONArray writerConnections = writerParam.getJSONArray("connection");
-        JSONObject writerConnectionJsonObj = (JSONObject) writerConnections.get(0);
-        String writeTable = (String)writerConnectionJsonObj.getJSONArray("table").get(0);
-        String writerJdbcUrl = writerConnectionJsonObj.getString("jdbcUrl");
-        DruidDataSource druidDataSource = new DruidDataSource();
-        druidDataSource.setUrl(writerJdbcUrl);
-        druidDataSource.setUsername(username);
-        druidDataSource.setPassword(password);
-
-        // reader
-        JSONObject reader = content.getJSONObject("reader");
-        JSONObject readerParam = reader.getJSONObject("parameter");
-        JSONArray readerConnections = readerParam.getJSONArray("connection");
-        JSONObject readerConnectionJsonObj = (JSONObject) readerConnections.get(0);
-        String readerJdbcUrl = (String)readerConnectionJsonObj.getJSONArray("jdbcUrl").get(0);
-        String readerTable = (String)readerConnectionJsonObj.getJSONArray("table").get(0);
-        String readerDataBase;
-        if (readerJdbcUrl.contains("?")) {
-            readerDataBase = readerJdbcUrl.replaceAll("jdbc:mysql://.*?:.*?/(.*?)\\?.*", "$1");
-        } else {
-            readerDataBase = readerJdbcUrl.replaceAll("jdbc:mysql://.*?:.*?/(.*)", "$1");
-        }
-
-        // 写入的时表名可能不一样 表名可能需要转化
-        DataSourceFactory.instance().putConvert(readerTable, writeTable);
-        // canal监听的库和表
-        String dataBaseTable = readerDataBase + "|" + readerTable;
-        Long canalTimestamp = jobInfo.getCanalTimestamp();
-        // 重启初始化
-        if (canalTimestamp != null) {
-            DataSourceFactory.instance().addNewTask(dataBaseTable, druidDataSource, canalTimestamp);
-            return;
-        }
-        // 首次初始化
-        long initTimestamp = System.currentTimeMillis();
-        // 添加新的canal任务
-        DataSourceFactory.instance().addNewTask(dataBaseTable, druidDataSource, initTimestamp);
-
-        // 添加 创建时间的where 语句 并保存起来
-        String initDateStr = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(initTimestamp);
-
-        String whereClause = "create_time < " + "'" + initDateStr + "'";
-        readerParam.put("where", whereClause);
-
-        reader.put("parameter", readerParam);
-        content.put("reader", reader);
-
-        jobInfo.setCanalTimestamp(initTimestamp);
-        contents.add(0, content);
-        jobJson.put("content", contents);
-        jsonObj.put("job", jobJson);
-        jobInfo.setJobJson(jsonObj.toJSONString());
-        JobAdminConfig.getAdminConfig().getJobInfoMapper().update(jobInfo);
     }
 
     private static boolean isNumeric(String str) {

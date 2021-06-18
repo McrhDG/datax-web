@@ -2,8 +2,11 @@ package com.wugui.datax.admin.canal;
 
 import com.alibaba.druid.pool.DruidDataSource;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang.StringUtils;
 
-import javax.sql.DataSource;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -37,6 +40,8 @@ public class DataSourceFactory {
 
     private final ConcurrentMap<String, String> TABLE_NAME_CONVERT = new ConcurrentHashMap<>();
 
+    private final ConcurrentMap<String, Map<String, String>> TABLE_COLUMN_CONVERT = new ConcurrentHashMap<>();
+
     /**
      * @param dataBaseTable
      * @return 数据写入的DataSource
@@ -69,6 +74,30 @@ public class DataSourceFactory {
 
     public void putConvert(String from, String to) {
         TABLE_NAME_CONVERT.put(from, to);
+    }
+
+    public Map<String,String> convertTableColumn(String dataBaseTable) {
+        return TABLE_COLUMN_CONVERT.get(dataBaseTable);
+    }
+
+    /**
+     * 字段转换关系
+     * @param dataBaseTable
+     * @param readerColumn
+     * @param writerColumn
+     */
+    public void putTableColumn(String dataBaseTable, List<Object> readerColumn, List<Object> writerColumn) {
+        Map<String,String> map = new HashMap<>(16);
+        for (int i = 0; i < readerColumn.size(); i++) {
+            String key = (String) readerColumn.get(i);
+            String value = (String) writerColumn.get(i);
+            if(StringUtils.isNotBlank(value)) {
+                map.put(key.replace("`", ""), value.replace("`", ""));
+            }
+        }
+        if (!map.isEmpty()) {
+            TABLE_COLUMN_CONVERT.put(dataBaseTable, map);
+        }
     }
 
 }

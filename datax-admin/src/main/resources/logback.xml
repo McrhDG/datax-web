@@ -2,8 +2,7 @@
 <configuration debug="false" scan="true" scanPeriod="1 seconds">
 
     <contextName>admin</contextName>
-    <property name="LOG_PATH"
-              value="${LOG_PATH:-${LOG_TEMP:-${java.io.tmpdir:-/data/applogs/admin}}}"/>
+    <property name="LOG_PATH" value="/data/logs/datax-admin"/>
 
     <!--控制台日志， 控制台输出 -->
     <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
@@ -14,12 +13,23 @@
     </appender>
 
     <appender name="file" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_PATH}/datax-admin.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}.%d{yyyy-MM-dd}.zip</fileNamePattern>
+            <fileNamePattern>${LOG_PATH}/output.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
         </rollingPolicy>
         <encoder>
             <pattern>%date %level [%thread] %logger{36} [%file : %line] %msg%n
+            </pattern>
+        </encoder>
+    </appender>
+
+    <appender name="canalfile" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/canal.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%date %level [%thread] %logger{20} [%file : %line] %msg%n
             </pattern>
         </encoder>
     </appender>
@@ -31,8 +41,12 @@
     <logger name="java.sql.PreparedStatement" level="DEBUG"/>
 
     <root level="info">
-        <appender-ref ref="console"/>
+       <!-- <appender-ref ref="console"/>-->
         <appender-ref ref="file"/>
     </root>
+
+    <logger name="com.wugui.datax.admin.canal" level="INFO" additivity="false" >
+        <appender-ref ref="canalfile"/>
+    </logger>
 
 </configuration>
