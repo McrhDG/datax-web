@@ -105,6 +105,23 @@ if [[ ! ${APOLLO_META} ]]; then
     APOLLO_META="http://10.200.0.3:28080"
 fi
 
+function getMyIp() {
+    case "`uname`" in
+        Darwin)
+         myip=`echo "show State:/Network/Global/IPv4" | scutil | grep PrimaryInterface | awk '{print $3}' | xargs ifconfig | grep inet | grep -v inet6 | awk '{print $2}'`
+         ;;
+        *)
+         myip=`ip route get 1 | awk '{print $NF;exit}'`
+         ;;
+  esac
+  echo $myip
+}
+
+if [[ ! ${IP} ]]; then
+    IP=`getMyIp`
+    echo "ip is "${IP}
+fi
+
 LIB_PATH=${BIN}/../lib
 USER_DIR=${BIN}/../
 CLASSPATH=${LIB_PATH}"/*:"${SERVICE_CONF_PATH}":."
@@ -112,6 +129,7 @@ if [ ${REMOTE_DEBUG_SWITCH} == true ]; then
     JAVA_OPTS=${JAVA_OPTS}" -Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=${REMOTE_DEBUG_PORT}"
 fi
 JAVA_OPTS=${JAVA_OPTS}" -Dapollo.meta="${APOLLO_META}
+JAVA_OPTS=${JAVA_OPTS}" -DIP="${IP}
 JAVA_OPTS=${JAVA_OPTS}" -XX:HeapDumpPath="${SERVICE_LOG_PATH}" -Dlog.path="${SERVICE_LOG_PATH}
 JAVA_OPTS=${JAVA_OPTS}" -Duser.dir="${USER_DIR}
 JAVA_OPTS=${JAVA_OPTS}" -Dserver.port="${SERVER_PORT}" -Ddata.path="${DATA_PATH}"  -Dmail.username="${MAIL_USERNAME}" -Dmail.password="${MAIL_PASSWORD}

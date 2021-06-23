@@ -1,11 +1,13 @@
 package com.wugui.datax.admin.core.trigger;
 
+import com.wenwo.cloud.message.driven.producer.service.MessageProducerService;
 import com.wugui.datatx.core.biz.ExecutorBiz;
 import com.wugui.datatx.core.biz.model.ReturnT;
 import com.wugui.datatx.core.biz.model.TriggerParam;
 import com.wugui.datatx.core.enums.ExecutorBlockStrategyEnum;
 import com.wugui.datatx.core.enums.IncrementTypeEnum;
 import com.wugui.datatx.core.glue.GlueTypeEnum;
+import com.wugui.datax.admin.constants.ProjectConstant;
 import com.wugui.datax.admin.core.conf.JobAdminConfig;
 import com.wugui.datax.admin.core.route.ExecutorRouteStrategyEnum;
 import com.wugui.datax.admin.core.scheduler.JobScheduler;
@@ -20,6 +22,7 @@ import com.wugui.datax.admin.tool.query.QueryToolFactory;
 import com.wugui.datax.admin.util.JSONUtils;
 import com.wugui.datax.rpc.util.IpUtil;
 import com.wugui.datax.rpc.util.ThrowableUtil;
+import net.bytebuddy.implementation.bytecode.constant.FieldConstant;
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,6 +57,13 @@ public class JobTrigger {
 
         //增量数据处理
         IncrementUtil.initIncrementData(jobInfo);
+
+        //同步到其他端点
+        MessageProducerService messageProducerService = JobAdminConfig.getAdminConfig().getMessageProducerService();
+        messageProducerService.sendMsg(jobInfo, ProjectConstant.ENDPOINT_SYNC_ROUTING_KEY, message->{
+            message.getMessageProperties().getHeaders().put(ProjectConstant.SOURCE_IP, JobAdminConfig.getAdminConfig().getIp());
+            return message;
+        });
 
         if (GlueTypeEnum.BEAN.getDesc().equals(jobInfo.getGlueType())) {
             //解密账密

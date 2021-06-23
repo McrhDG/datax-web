@@ -309,7 +309,7 @@ public class WenwoCanalClient implements SmartInitializingSingleton {
                 DruidDataSource dataSource = DataSourceFactory.instance().getDataSource(dataBaseTable);
                 if (dataSource == null) {
                     logger.info("dataBase:{}, tableName:{} 没有配置同步数据源", dataBase, tableName);
-                    return;
+                    continue;
                 }
                 // 数据去向
                 String convertTableName = DataSourceFactory.instance().convertTableName(tableName);
@@ -328,7 +328,7 @@ public class WenwoCanalClient implements SmartInitializingSingleton {
 
                     Map<String, String> convertTableColumn = DataSourceFactory.instance().convertTableColumn(dataBaseTable);
                     if (CollectionUtils.isEmpty(convertTableColumn)) {
-                        return;
+                        continue;
                     }
                     if (eventType == EventType.DELETE) {
                         printColumn(rowData.getBeforeColumnsList());

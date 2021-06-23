@@ -1,9 +1,11 @@
 package com.wugui.datax.admin.core.conf;
 
+import com.wenwo.cloud.message.driven.producer.service.MessageProducerService;
 import com.wugui.datax.admin.core.scheduler.JobScheduler;
 import com.wugui.datax.admin.mapper.*;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.InitializingBean;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Component;
@@ -69,6 +71,9 @@ public class JobAdminConfig implements InitializingBean, DisposableBean {
     @Value("${datasource.aes.key}")
     private String dataSourceAESKey;
 
+    @Value("${ip}")
+    private String ip;
+
     // dao, service
 
     @Resource
@@ -87,6 +92,10 @@ public class JobAdminConfig implements InitializingBean, DisposableBean {
     private DataSource dataSource;
     @Resource
     private JobDatasourceMapper jobDatasourceMapper;
+
+    /** mq消息发送*/
+    @Autowired
+    private MessageProducerService messageProducerService;
 
     public String getI18n() {
         return i18n;
@@ -110,6 +119,10 @@ public class JobAdminConfig implements InitializingBean, DisposableBean {
 
     public int getLogretentiondays() {
         return logretentiondays < 7 ? -1 : logretentiondays;
+    }
+
+    public String getIp() {
+        return ip;
     }
 
     public JobLogMapper getJobLogMapper() {
@@ -150,5 +163,9 @@ public class JobAdminConfig implements InitializingBean, DisposableBean {
 
     public void setDataSourceAESKey(String dataSourceAESKey) {
         this.dataSourceAESKey = dataSourceAESKey;
+    }
+
+    public MessageProducerService getMessageProducerService() {
+        return messageProducerService;
     }
 }

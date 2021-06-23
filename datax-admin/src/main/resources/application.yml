@@ -5,7 +5,7 @@ app.id: ${spring.application.name}
 apollo:
   meta: http://10.200.0.3:28080
   bootstrap:
-    namespaces: application,BASIC-DEP.zk
+    namespaces: application,BASIC-DEP.rabbitmq,BASIC-DEP.zk
     enabled: true
     eagerLoad:
       enabled: true
