@@ -100,4 +100,14 @@ public class DataSourceFactory {
         }
     }
 
+    /**
+     * 关闭canal同步
+     * @param dataBaseTable
+     */
+    public void closeTask(String dataBaseTable) {
+        dataSourceCache.remove(dataBaseTable);
+        taskInitTimeStamp.remove(dataBaseTable);
+        TABLE_NAME_CONVERT.remove(dataBaseTable);
+        TABLE_COLUMN_CONVERT.remove(dataBaseTable);
+    }
 }

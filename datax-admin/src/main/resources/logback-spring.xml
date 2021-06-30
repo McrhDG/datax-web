@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration packagingData="true">
+
+    <property resource="application.yml"/>
+    <springProperty scope="context" name="appName" source="spring.application.name"/>
+
+    <!--日志文件的保存路径,首先查找系统属性-Dlog.dir,如果存在就使用其；否则，在当前目录下创建名为logs目录做日志存放的目录 -->
+    <property name="LOG_HOME" value="/data/logs/${appName}"/>
+    <!-- 日志输出格式 -->
+    <!--格式化输出：%d表示日期，%thread表示线程名，%-5level：级别从左显示5个字符宽度 %M 输出执行日志请求的方法名  %c包路径  %F 输出执行记录请求的java源文件名  %L输出执行日志请求的行号  %msg：日志消息，%n是换行符-->
+    <property name="ENCODER_PATTERN"
+              value="[${appName}][%d{yyyy-MM-dd HH:mm:ss}][%-5level][%thread][%M][%c.%F,%L]==>%msg%n"/>
+    <property name="ENCODER_PATTERN_ERROR"
+              value="[${appName}][%d{yyyy-MM-dd HH:mm:ss}][%-5level][%thread][%logger{80}.%M][%F.%L]-->%msg%n"/>
+
+    <!-- 控制台日志：输出全部日志到控制台 -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <Pattern>${ENCODER_PATTERN}</Pattern>
+        </encoder>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>INFO</level>
+        </filter>
+    </appender>
+
+    <!-- 文件日志：输出全部日志到文件 -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/output.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <pattern>${ENCODER_PATTERN}</pattern>
+        </encoder>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>INFO</level>
+        </filter>
+    </appender>
+
+    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/error.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <pattern>${ENCODER_PATTERN_ERROR}</pattern>
+        </encoder>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>ERROR</level>
+        </filter>
+    </appender>
+
+    <!-- 文件日志：输出全部日志到文件 -->
+    <appender name="CANAL_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/canal.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <pattern>${ENCODER_PATTERN}</pattern>
+        </encoder>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>INFO</level>
+        </filter>
+    </appender>
+
+    <appender name="MONGO_WATCH_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/mongo_watch.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <pattern>${ENCODER_PATTERN}</pattern>
+        </encoder>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>INFO</level>
+        </filter>
+    </appender>
+
+    <!--mybatis log configure-->
+    <logger name="com.apache.ibatis" level="TRACE"/>
+    <logger name="java.sql.Connection" level="DEBUG"/>
+    <logger name="java.sql.Statement" level="DEBUG"/>
+    <logger name="java.sql.PreparedStatement" level="DEBUG"/>
+
+    <!--开发:打印控制台-->
+    <springProfile name="dev,rebuild-dev">
+        <root>
+			<level value="INFO"/>
+			<appender-ref ref="STDOUT"/>
+			<appender-ref ref="FILE"/>
+			<appender-ref ref="ERROR_FILE"/>
+        </root>
+        <logger name="com.wugui.datax.admin.canal" level="INFO" additivity="false" >
+            <appender-ref ref="CANAL_FILE"/>
+            <appender-ref ref="ERROR_FILE"/>
+            <appender-ref ref="STDOUT"/>
+        </logger>
+        <logger name="com.wugui.datax.admin.mongo" level="INFO" additivity="false" >
+            <appender-ref ref="MONGO_WATCH_FILE"/>
+            <appender-ref ref="ERROR_FILE"/>
+            <appender-ref ref="STDOUT"/>
+        </logger>
+    </springProfile>
+
+    <!--测试环境,生产环境:仅输出到文件-->
+    <springProfile name="test,rebuild-test,uat,prd">
+        <root>
+            <level value="INFO"/>
+            <appender-ref ref="FILE"/>
+            <appender-ref ref="ERROR_FILE"/>
+        </root>
+        <logger name="com.wugui.datax.admin.canal" level="INFO" additivity="false" >
+            <appender-ref ref="CANAL_FILE"/>
+            <appender-ref ref="ERROR_FILE"/>
+        </logger>
+        <logger name="com.wugui.datax.admin.mongo" level="INFO" additivity="false" >
+            <appender-ref ref="MONGO_WATCH_FILE"/>
+            <appender-ref ref="ERROR_FILE"/>
+        </logger>
+    </springProfile>
+
+</configuration>

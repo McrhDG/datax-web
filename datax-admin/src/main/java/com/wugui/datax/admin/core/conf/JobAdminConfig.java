@@ -74,6 +74,12 @@ public class JobAdminConfig implements InitializingBean, DisposableBean {
     @Value("${ip}")
     private String ip;
 
+    /**
+     * 连接重试频率
+     */
+    @Value("${mongodb.connection.retry:5}")
+    private Integer mongoConnectionTry;
+
     // dao, service
 
     @Resource
@@ -96,6 +102,9 @@ public class JobAdminConfig implements InitializingBean, DisposableBean {
     /** mq消息发送*/
     @Autowired
     private MessageProducerService messageProducerService;
+
+    @Resource
+    private IncrementSyncWaitingMapper incrementSyncWaitingMapper;
 
     public String getI18n() {
         return i18n;
@@ -167,5 +176,13 @@ public class JobAdminConfig implements InitializingBean, DisposableBean {
 
     public MessageProducerService getMessageProducerService() {
         return messageProducerService;
+    }
+
+    public Integer getMongoConnectionTry() {
+        return mongoConnectionTry;
+    }
+
+    public IncrementSyncWaitingMapper getIncrementSyncWaitingMapper() {
+        return incrementSyncWaitingMapper;
     }
 }

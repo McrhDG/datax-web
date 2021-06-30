@@ -52,7 +52,8 @@
 		<result column="inc_start_id" property="incStartId" />
 		<result column="increment_type" property="incrementType" />
 		<result column="datasource_id" property="datasourceId" />
-		<result column="canal_timestamp" property="canalTimestamp" />
+		<result column="increment_sync_type" property="incrementSyncType" />
+		<result column="increment_sync_time" property="incrementSyncTime" />
 	</resultMap>
 
 	<sql id="Base_Column_List">
@@ -91,7 +92,8 @@
 		t.inc_start_id,
 		t.increment_type,
 		t.datasource_id,
-		t.canal_timestamp
+		t.increment_sync_type,
+		t.increment_sync_time
 	</sql>
 
 	<sql id="Project_Column_List">
@@ -200,8 +202,9 @@
 			primary_key,
 			inc_start_id,
 			increment_type,
-			canal_timestamp,
-			datasource_id
+			datasource_id,
+			increment_sync_type,
+			increment_sync_time
 		) VALUES (
 			#{jobGroup},
 			#{jobCron},
@@ -236,8 +239,9 @@
 			#{primaryKey},
 			#{incStartId},
 			#{incrementType},
-			#{canalTimestamp},
-			#{datasourceId}
+			#{datasourceId},
+			#{incrementSyncType},
+			#{incrementSyncTime}
 		);
 		<!--<selectKey resultType="java.lang.Integer" order="AFTER" keyProperty="id">
 			SELECT LAST_INSERT_ID()
@@ -287,7 +291,8 @@
 		    inc_start_id = #{incStartId},
 		    increment_type = #{incrementType},
 		    datasource_id= #{datasourceId},
-			canal_timestamp= #{canalTimestamp}
+			increment_sync_type=#{incrementSyncType},
+			increment_sync_time=#{incrementSyncTime}
 		WHERE id = #{id}
 	</update>
 
@@ -303,10 +308,10 @@
 		WHERE t.job_group = #{jobGroup}
 	</select>
 
-	<select id="findInitCanal" resultMap="JobProject">
+	<select id="findInitIncrInfo" parameterType="java.lang.String" resultMap="JobProject">
 		SELECT <include refid="Base_Column_List" />
 		FROM job_info AS t
-		WHERE t.canal_timestamp > 0
+		WHERE t.increment_sync_type = #{type}
 	</select>
 
 	<select id="findAllCount" resultType="int">

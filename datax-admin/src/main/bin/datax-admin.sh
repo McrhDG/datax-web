@@ -105,6 +105,10 @@ if [[ ! ${APOLLO_META} ]]; then
     APOLLO_META="http://10.200.0.3:28080"
 fi
 
+if [[ ! ${ACTIVE} ]]; then
+    ACTIVE="prd"
+fi
+
 function getMyIp() {
     case "`uname`" in
         Darwin)
@@ -136,7 +140,7 @@ JAVA_OPTS=${JAVA_OPTS}" -Dserver.port="${SERVER_PORT}" -Ddata.path="${DATA_PATH}
 if [ "x"${PID_FILE_PATH} != "x" ]; then
   JAVA_OPTS=${JAVA_OPTS}" -Dpid.file="${PID_FILE_PATH}
 fi
-JAVA_OPTS=${JAVA_OPTS}" -Dlogging.config="${SERVICE_CONF_PATH}"/logback.xml"
+#JAVA_OPTS=${JAVA_OPTS}" -Dlogging.config="${SERVICE_CONF_PATH}"/logback.xml"
 JAVA_OPTS=${JAVA_OPTS}" -classpath "${CLASSPATH}
 
 if [ "x${JAVA_HOME}" != "x" ]; then
@@ -147,6 +151,7 @@ else
   JPS="jps"
 fi
 
+EXE_JAVA=${EXE_JAVA}" --spring.profiles.active="${ACTIVE}
 usage(){
     echo " usage is [start|stop|shutdown|restart]"
 }

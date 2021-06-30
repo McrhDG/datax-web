@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
  * @date 2021/6/23 11:31
  */
 @Component
-@RabbitListener( queues = "#{endpointSyncQueue.name}")
+@RabbitListener(queues = "#{endpointSyncQueue.name}")
 public class EndpointSyncListener {
 
     /**
@@ -27,7 +27,20 @@ public class EndpointSyncListener {
     @RabbitHandler
     public void process(@Payload JobInfo jobInfo, @Header String sourceIp) {
         if (!JobAdminConfig.getAdminConfig().getIp().equals(sourceIp)) {
-            IncrementUtil.initIncrementData(jobInfo);
+            IncrementUtil.initIncrementData(jobInfo, true);
+        }
+    }
+
+    /**
+     * 接收
+     * @param runningJob
+     */
+    @RabbitHandler
+    public void process(@Payload RunningJob runningJob) {
+        if (runningJob.getIsAdd()) {
+            IncrementUtil.addRunningJob(runningJob.getJobId());
+        } else {
+            IncrementUtil.removeRunningJob(runningJob.getJobId());
         }
     }
 }

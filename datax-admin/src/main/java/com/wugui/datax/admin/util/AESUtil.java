@@ -91,7 +91,7 @@ public class AESUtil {
 
     public static String decrypt(String ciphertext) {
         if (StringUtils.isBlank(ciphertext)) {
-            return null;
+            return ciphertext;
         }
         try {
             KeyGenerator keygen = getKeyGenerator();

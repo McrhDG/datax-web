@@ -17,15 +17,16 @@ import com.wugui.datax.admin.entity.JobDatasource;
 import com.wugui.datax.admin.entity.JobGroup;
 import com.wugui.datax.admin.entity.JobInfo;
 import com.wugui.datax.admin.entity.JobLog;
+import com.wugui.datax.admin.mq.RunningJob;
 import com.wugui.datax.admin.tool.query.BaseQueryTool;
 import com.wugui.datax.admin.tool.query.QueryToolFactory;
 import com.wugui.datax.admin.util.JSONUtils;
 import com.wugui.datax.rpc.util.IpUtil;
 import com.wugui.datax.rpc.util.ThrowableUtil;
-import net.bytebuddy.implementation.bytecode.constant.FieldConstant;
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 
 import java.util.Calendar;
 import java.util.Date;
@@ -56,7 +57,7 @@ public class JobTrigger {
         }
 
         //增量数据处理
-        IncrementUtil.initIncrementData(jobInfo);
+        IncrementUtil.initIncrementData(jobInfo, false);
 
         //同步到其他端点
         MessageProducerService messageProducerService = JobAdminConfig.getAdminConfig().getMessageProducerService();
@@ -201,6 +202,11 @@ public class JobTrigger {
         ReturnT<String> triggerResult = null;
         if (address != null) {
             triggerResult = runExecutor(triggerParam, address);
+            if (HttpStatus.OK.value() == triggerResult.getCode()) {
+                //同步到其他端点
+                MessageProducerService messageProducerService = JobAdminConfig.getAdminConfig().getMessageProducerService();
+                messageProducerService.sendMsg(new RunningJob(jobInfo.getId(), true), ProjectConstant.ENDPOINT_SYNC_ROUTING_KEY);
+            }
         } else {
             triggerResult = new ReturnT<String>(ReturnT.FAIL_CODE, null);
         }

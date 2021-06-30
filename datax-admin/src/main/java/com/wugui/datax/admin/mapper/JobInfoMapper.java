@@ -58,5 +58,5 @@ public interface JobInfoMapper {
 
     void incrementIdUpdate(@Param("id") int id, @Param("incStartId")Long incStartId);
 
-    List<JobInfo> findInitCanal();
+    List<JobInfo> findInitIncrInfo(@Param("type") String type);
 }

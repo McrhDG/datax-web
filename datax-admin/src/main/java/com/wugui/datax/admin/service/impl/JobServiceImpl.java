@@ -8,6 +8,7 @@ import com.wugui.datax.admin.core.cron.CronExpression;
 import com.wugui.datax.admin.core.route.ExecutorRouteStrategyEnum;
 import com.wugui.datax.admin.core.thread.JobScheduleHelper;
 import com.wugui.datax.admin.core.util.I18nUtil;
+import com.wugui.datax.admin.core.util.IncrementUtil;
 import com.wugui.datax.admin.dto.DataXBatchJsonBuildDto;
 import com.wugui.datax.admin.dto.DataXJsonBuildDto;
 import com.wugui.datax.admin.entity.JobGroup;
@@ -230,7 +231,7 @@ public class JobServiceImpl implements JobService {
         if (exists_jobInfo == null) {
             return new ReturnT<>(ReturnT.FAIL_CODE, (I18nUtil.getString("jobinfo_field_id") + I18nUtil.getString("system_not_found")));
         }
-
+        IncrementUtil.removeTask(exists_jobInfo);
         // next trigger time (5s后生效，避开预读周期)
         long nextTriggerTime = exists_jobInfo.getTriggerNextTime();
         if (exists_jobInfo.getTriggerStatus() == 1 && !jobInfo.getJobCron().equals(exists_jobInfo.getJobCron())) {
@@ -273,6 +274,7 @@ public class JobServiceImpl implements JobService {
         if (xxlJobInfo == null) {
             return ReturnT.SUCCESS;
         }
+        IncrementUtil.removeTask(xxlJobInfo);
 
         jobInfoMapper.delete(id);
         jobLogMapper.delete(id);

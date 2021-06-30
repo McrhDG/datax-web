@@ -124,7 +124,12 @@ public class JobInfo {
 	private String userName;
 
 	/**
-	 * canal初始化时间戳
+	 * 增量同步方式:canal/mongo_watch
 	 */
-	private Long canalTimestamp;
+	private String incrementSyncType;
+
+	/**
+	 * 增量同步方式初始化时间
+	 */
+	private Date incrementSyncTime;
 }

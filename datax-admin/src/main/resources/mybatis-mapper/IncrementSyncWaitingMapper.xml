@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+	"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wugui.datax.admin.mapper.IncrementSyncWaitingMapper">
+
+
+	<resultMap id="IncrementSyncWaiting" type="com.wugui.datax.admin.entity.IncrementSyncWaiting" >
+		<result column="id" property="id" />
+
+		<result column="jobId" property="job_id" />
+	    <result column="type" property="type" />
+
+	    <result column="operationType" property="operation_type" />
+	    <result column="content" property="content" />
+
+	    <result column="idValue" property="id_value" />
+	    <result column="condition" property="condition" />
+
+		<result column="createTime" property="create_time" />
+		<result column="updateTime" property="update_time" />
+	</resultMap>
+
+	<!--<resultMap id="jobIds" type="com.wugui.datax.admin.entity.IncrementSyncWaiting" >
+		<result column="jobId" property="job_id" />
+	</resultMap>-->
+
+	<sql id="Base_Column_List">
+		t.id,
+		t.job_id,
+		t.type,
+		t.operation_type,
+		t.content,
+		t.id_value,
+		t.condition,
+		t.create_time,
+		t.update_time
+	</sql>
+
+	<select id="findAll" parameterType="java.util.HashMap" resultMap="IncrementSyncWaiting">
+		SELECT <include refid="Base_Column_List" />
+		FROM increment_sync_waiting AS t
+		ORDER BY update_time ASC
+	</select>
+
+	<insert id="save" parameterType="com.wugui.datax.admin.entity.IncrementSyncWaiting" useGeneratedKeys="true" keyProperty="id" >
+		INSERT INTO increment_sync_waiting (
+		job_id,
+		`type`,
+		operation_type,
+		content,
+		id_value,
+		`condition`
+		) VALUES (
+		#{jobId},
+		#{type},
+		#{operationType},
+		#{content},
+		#{idValue},
+		#{condition}
+		);
+	</insert>
+
+	<select id="loadById" parameterType="java.util.HashMap" resultMap="IncrementSyncWaiting">
+		SELECT <include refid="Base_Column_List" />
+		FROM increment_sync_waiting AS t
+		WHERE t.id = #{id}
+	</select>
+
+	<update id="update" parameterType="com.wugui.datax.admin.entity.IncrementSyncWaiting" >
+		UPDATE increment_sync_waiting
+		SET
+		job_id=#{jobId},
+		`type`=#{type},
+		operation_type=#{operationType},
+		content=#{content},
+		id_value=#{idValue},
+		`condition`=#{condition}
+		WHERE id = #{id}
+	</update>
+
+	<delete id="delete" parameterType="java.util.HashMap">
+		DELETE
+		FROM increment_sync_waiting
+		WHERE id = #{id}
+	</delete>
+
+	<select id="loadByJobId" parameterType="java.util.HashMap" resultMap="IncrementSyncWaiting">
+		SELECT <include refid="Base_Column_List" />
+		FROM increment_sync_waiting AS t
+		WHERE t.job_id = #{jobId}
+		ORDER BY update_time ASC
+	</select>
+
+	<delete id="deleteByJobIdAndIdValue" parameterType="java.util.HashMap">
+		DELETE
+		FROM increment_sync_waiting
+		WHERE job_id = #{jobId} AND id_value = #{idValue}
+	</delete>
+
+	<select id="loadUpdate" parameterType="java.util.HashMap" resultMap="IncrementSyncWaiting">
+		SELECT <include refid="Base_Column_List" />
+		FROM increment_sync_waiting AS t
+		WHERE t.job_id = #{jobId} AND operation_type='UPDATE'
+	</select>
+
+	<delete id="deleteByOperation" parameterType="java.util.HashMap">
+		DELETE
+		FROM increment_sync_waiting
+		WHERE job_id = #{jobId} AND id_value = #{idValue} AND operation_type=#{operationType}
+	</delete>
+
+	<update id="updateContent" parameterType="java.util.HashMap">
+		UPDATE increment_sync_waiting
+		SET
+		content = #{content}
+		WHERE id = #{id}
+	</update>
+
+	<select id="findJobIds" resultType="java.lang.Integer">
+		SELECT DISTINCT job_id
+		FROM increment_sync_waiting
+	</select>
+
+</mapper>

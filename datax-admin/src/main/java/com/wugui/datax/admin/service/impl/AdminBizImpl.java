@@ -1,5 +1,7 @@
 package com.wugui.datax.admin.service.impl;
 
+import com.alibaba.fastjson.JSON;
+import com.wenwo.cloud.message.driven.producer.service.MessageProducerService;
 import com.wugui.datatx.core.biz.AdminBiz;
 import com.wugui.datatx.core.biz.model.HandleCallbackParam;
 import com.wugui.datatx.core.biz.model.HandleProcessCallbackParam;
@@ -7,29 +9,42 @@ import com.wugui.datatx.core.biz.model.RegistryParam;
 import com.wugui.datatx.core.biz.model.ReturnT;
 import com.wugui.datatx.core.enums.IncrementTypeEnum;
 import com.wugui.datatx.core.handler.IJobHandler;
+import com.wugui.datax.admin.constants.ProjectConstant;
+import com.wugui.datax.admin.core.conf.JobAdminConfig;
 import com.wugui.datax.admin.core.kill.KillJob;
 import com.wugui.datax.admin.core.thread.JobTriggerPoolHelper;
 import com.wugui.datax.admin.core.trigger.TriggerTypeEnum;
 import com.wugui.datax.admin.core.util.I18nUtil;
+import com.wugui.datax.admin.core.util.IncrementUtil;
+import com.wugui.datax.admin.entity.ConvertInfo;
+import com.wugui.datax.admin.entity.IncrementSyncWaiting;
 import com.wugui.datax.admin.entity.JobInfo;
 import com.wugui.datax.admin.entity.JobLog;
+import com.wugui.datax.admin.mapper.IncrementSyncWaitingMapper;
 import com.wugui.datax.admin.mapper.JobInfoMapper;
 import com.wugui.datax.admin.mapper.JobLogMapper;
 import com.wugui.datax.admin.mapper.JobRegistryMapper;
+import com.wugui.datax.admin.mongo.MongoWatchWorkThread;
+import com.wugui.datax.admin.mq.RunningJob;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
+import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import java.text.MessageFormat;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 
 /**
  * @author xuxueli 2017-07-27 21:54:20
  */
 @Service
+@DependsOn({"mongoWatchWork"})
 public class AdminBizImpl implements AdminBiz {
     private static Logger logger = LoggerFactory.getLogger(AdminBizImpl.class);
 
@@ -39,6 +54,23 @@ public class AdminBizImpl implements AdminBiz {
     private JobInfoMapper jobInfoMapper;
     @Resource
     private JobRegistryMapper jobRegistryMapper;
+
+    @Resource
+    private IncrementSyncWaitingMapper incrementSyncWaitingMapper;
+
+    /**
+     * 处理待运行数据
+     */
+    @PostConstruct
+    public void process() {
+        List<Integer> jobIds = incrementSyncWaitingMapper.findJobIds();
+        if (CollectionUtils.isEmpty(jobIds)) {
+            return;
+        }
+        for (Integer jobId : jobIds) {
+            executeIncrementSyncWaiting(jobId);
+        }
+    }
 
     @Override
     public ReturnT<String> callback(List<HandleCallbackParam> callbackParamList) {
@@ -66,6 +98,54 @@ public class AdminBizImpl implements AdminBiz {
         return result > 0 ? ReturnT.FAIL : ReturnT.SUCCESS;
     }
 
+    /**
+     * 执行增量同步等待任务
+     * @param jobId
+     */
+    private void executeIncrementSyncWaiting(int jobId) {
+        List<IncrementSyncWaiting> incrementSyncWaitings = incrementSyncWaitingMapper.loadByJobId(jobId);
+        if (CollectionUtils.isEmpty(incrementSyncWaitings)) {
+            return;
+        }
+        ConvertInfo convertInfo = IncrementUtil.getConvertInfo(jobId);
+        if (convertInfo == null) {
+            logger.info("jobId:{}, 不存在读写装换关系", jobId);
+            return;
+        }
+
+        for (IncrementSyncWaiting incrementSyncWaiting : incrementSyncWaitings) {
+            String operationType = incrementSyncWaiting.getOperationType();
+            String content = incrementSyncWaiting.getContent();
+            String type = incrementSyncWaiting.getType();
+            Map<String, Object> data;
+            String idValue = incrementSyncWaiting.getIdValue();
+            switch (operationType) {
+                case "INSERT":
+                    data = JSON.parseObject(content);
+                    if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
+                        MongoWatchWorkThread.insert(convertInfo, data);
+                    }
+                    break;
+                case "UPDATE":
+                case "REPLACE":
+                    data = JSON.parseObject(content);
+                    if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
+                        String id = incrementSyncWaiting.getCondition();
+                        MongoWatchWorkThread.update(convertInfo, data, id);
+                    }
+                    break;
+                case "DELETE":
+                    if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
+                        String id = incrementSyncWaiting.getCondition();
+                        MongoWatchWorkThread.delete(convertInfo, id);
+                    }
+                    break;
+                default:
+                    logger.info("operation:{} not support, jobId:{}", operationType, jobId);
+            }
+            incrementSyncWaitingMapper.deleteByOperation(jobId, idValue, operationType);
+        }
+    }
 
     private ReturnT<String> callback(HandleCallbackParam handleCallbackParam) {
         // valid log item
@@ -76,6 +156,12 @@ public class AdminBizImpl implements AdminBiz {
         if (log.getHandleCode() > 0) {
             return new ReturnT<String>(ReturnT.FAIL_CODE, "log repeate callback.");     // avoid repeat callback, trigger child job etc
         }
+
+        //执行等待增量任务
+        executeIncrementSyncWaiting(log.getJobId());
+        //同步到其他端点
+        MessageProducerService messageProducerService = JobAdminConfig.getAdminConfig().getMessageProducerService();
+        messageProducerService.sendMsg(new RunningJob(log.getJobId(), false), ProjectConstant.ENDPOINT_SYNC_ROUTING_KEY);
 
         // trigger success, to trigger child job
         String callbackMsg = null;

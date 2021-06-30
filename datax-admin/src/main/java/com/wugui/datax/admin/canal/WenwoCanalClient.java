@@ -8,9 +8,11 @@ import com.alibaba.otter.canal.protocol.CanalEntry;
 import com.alibaba.otter.canal.protocol.CanalEntry.*;
 import com.alibaba.otter.canal.protocol.Message;
 import com.google.protobuf.InvalidProtocolBufferException;
+import com.wugui.datax.admin.constants.ProjectConstant;
 import com.wugui.datax.admin.core.conf.JobAdminConfig;
 import com.wugui.datax.admin.core.util.IncrementUtil;
 import com.wugui.datax.admin.entity.JobInfo;
+import com.wugui.datax.admin.util.MysqlUtil;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.SystemUtils;
 import org.slf4j.Logger;
@@ -123,10 +125,10 @@ public class WenwoCanalClient implements SmartInitializingSingleton {
         }, new ThreadPoolExecutor.CallerRunsPolicy());
 
         // 初始化原有的canalJobs
-        List<JobInfo> initCanalJobs = JobAdminConfig.getAdminConfig().getJobInfoMapper().findInitCanal();
+        List<JobInfo> initCanalJobs = JobAdminConfig.getAdminConfig().getJobInfoMapper().findInitIncrInfo(ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val());
         if (CollectionUtil.isNotEmpty(initCanalJobs)) {
             for (JobInfo initCanalJob : initCanalJobs) {
-                IncrementUtil.initCanal(initCanalJob);
+                IncrementUtil.initCanal(initCanalJob, true);
             }
         }
 
@@ -317,10 +319,12 @@ public class WenwoCanalClient implements SmartInitializingSingleton {
                     continue;
                 }
                 for (RowData rowData : rowDataList) {
-                    if (StringUtils.isNotBlank(sql) && (sql.startsWith("ALTER TABLE") || sql.startsWith("CREATE TABLE"))) {
+                    boolean flag = StringUtils.isNotBlank(sql) && (sql.startsWith("ALTER TABLE") || sql.startsWith("CREATE TABLE"));
+                    if (flag) {
                         String url = dataSource.getUrl();
                         url = url.substring(0, url.indexOf("?"));
-                        String  toDataBase = url.replaceAll("jdbc:mysql://.*?:.*?/(.*)", "$1");
+                        //String  toDataBase = url.replaceAll("jdbc:mysql://.*?:.*?/(.*)", "$1");
+                        String  toDataBase = MysqlUtil.getMysqlDataBase(url);
                         sql = sql.replace(dataBase, toDataBase).replace(tableName, convertTableName);
                         executeSql(dataSource, sql);
                         continue;
