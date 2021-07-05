@@ -51,7 +51,7 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
         http.cors().and().csrf().disable()
                 .authorizeRequests()
                 .antMatchers("/static/**","/index.html","/favicon.ico","/avatar.jpg").permitAll()
-                .antMatchers("/api/callback","/api/processCallback","/api/registry","/api/registryRemove").permitAll()
+                .antMatchers("/api/callback","/api/processCallback","/api/registry","/api/registryRemove","/api/incrementWait").permitAll()
                 .antMatchers("/doc.html","/swagger-resources/**","/webjars/**","/*/api-docs").anonymous()
                 .anyRequest().authenticated()
                 .and()

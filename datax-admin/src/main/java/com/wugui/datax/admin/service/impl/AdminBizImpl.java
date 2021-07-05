@@ -1,6 +1,7 @@
 package com.wugui.datax.admin.service.impl;
 
 import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.TypeReference;
 import com.wenwo.cloud.message.driven.producer.service.MessageProducerService;
 import com.wugui.datatx.core.biz.AdminBiz;
 import com.wugui.datatx.core.biz.model.HandleCallbackParam;
@@ -9,6 +10,8 @@ import com.wugui.datatx.core.biz.model.RegistryParam;
 import com.wugui.datatx.core.biz.model.ReturnT;
 import com.wugui.datatx.core.enums.IncrementTypeEnum;
 import com.wugui.datatx.core.handler.IJobHandler;
+import com.wugui.datax.admin.canal.CanalWorkThread;
+import com.wugui.datax.admin.canal.ColumnValue;
 import com.wugui.datax.admin.constants.ProjectConstant;
 import com.wugui.datax.admin.core.conf.JobAdminConfig;
 import com.wugui.datax.admin.core.kill.KillJob;
@@ -26,8 +29,10 @@ import com.wugui.datax.admin.mapper.JobLogMapper;
 import com.wugui.datax.admin.mapper.JobRegistryMapper;
 import com.wugui.datax.admin.mongo.MongoWatchWorkThread;
 import com.wugui.datax.admin.mq.RunningJob;
+import com.wugui.datax.admin.util.RedisLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
@@ -46,7 +51,7 @@ import java.util.Map;
 @Service
 @DependsOn({"mongoWatchWork"})
 public class AdminBizImpl implements AdminBiz {
-    private static Logger logger = LoggerFactory.getLogger(AdminBizImpl.class);
+    private static final Logger logger = LoggerFactory.getLogger(AdminBizImpl.class);
 
     @Resource
     public JobLogMapper jobLogMapper;
@@ -58,11 +63,23 @@ public class AdminBizImpl implements AdminBiz {
     @Resource
     private IncrementSyncWaitingMapper incrementSyncWaitingMapper;
 
+    /** redis锁*/
+    @Autowired
+    private RedisLock redisLock;
+
     /**
      * 处理待运行数据
      */
     @PostConstruct
     public void process() {
+        executeIncrementSyncWaitings();
+    }
+
+    /**
+     * 执行增量等待方法
+     */
+    @Override
+    public void executeIncrementSyncWaitings() {
         List<Integer> jobIds = incrementSyncWaitingMapper.findJobIds();
         if (CollectionUtils.isEmpty(jobIds)) {
             return;
@@ -103,47 +120,70 @@ public class AdminBizImpl implements AdminBiz {
      * @param jobId
      */
     private void executeIncrementSyncWaiting(int jobId) {
-        List<IncrementSyncWaiting> incrementSyncWaitings = incrementSyncWaitingMapper.loadByJobId(jobId);
-        if (CollectionUtils.isEmpty(incrementSyncWaitings)) {
+        if (IncrementUtil.isRunningJob(jobId)) {
             return;
         }
-        ConvertInfo convertInfo = IncrementUtil.getConvertInfo(jobId);
-        if (convertInfo == null) {
-            logger.info("jobId:{}, 不存在读写装换关系", jobId);
-            return;
-        }
+        String lock = String.format(ProjectConstant.INCREMENT_WAIT_JOB_LOCK, jobId);
+        if (redisLock.tryLock(lock, ProjectConstant.LOCK_TIMEOUT_300)) {
+            try {
+                List<IncrementSyncWaiting> incrementSyncWaitings = incrementSyncWaitingMapper.loadByJobId(jobId);
+                if (CollectionUtils.isEmpty(incrementSyncWaitings)) {
+                    return;
+                }
+                ConvertInfo convertInfo = IncrementUtil.getConvertInfo(jobId);
+                if (convertInfo == null) {
+                    logger.info("jobId:{}, 不存在读写装换关系", jobId);
+                    incrementSyncWaitingMapper.deleteByJobId(jobId);
+                    return;
+                }
 
-        for (IncrementSyncWaiting incrementSyncWaiting : incrementSyncWaitings) {
-            String operationType = incrementSyncWaiting.getOperationType();
-            String content = incrementSyncWaiting.getContent();
-            String type = incrementSyncWaiting.getType();
-            Map<String, Object> data;
-            String idValue = incrementSyncWaiting.getIdValue();
-            switch (operationType) {
-                case "INSERT":
-                    data = JSON.parseObject(content);
-                    if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
-                        MongoWatchWorkThread.insert(convertInfo, data);
+                for (IncrementSyncWaiting incrementSyncWaiting : incrementSyncWaitings) {
+                    String operationType = incrementSyncWaiting.getOperationType();
+                    String content = incrementSyncWaiting.getContent();
+                    String condition = incrementSyncWaiting.getCondition();
+                    String type = incrementSyncWaiting.getType();
+                    String idValue = incrementSyncWaiting.getIdValue();
+                    try {
+                        switch (operationType) {
+                            case "INSERT":
+                                if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
+                                    Map<String, Object> data = JSON.parseObject(content);
+                                    MongoWatchWorkThread.insert(convertInfo, data);
+                                } else if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(type)) {
+                                    Map<String, ColumnValue> insertMap = JSON.parseObject(content, new TypeReference<Map<String, ColumnValue>>() {});
+                                    CanalWorkThread.insert(convertInfo, insertMap);
+                                }
+                                break;
+                            case "UPDATE":
+                            case "REPLACE":
+                                if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
+                                    Map<String, Object> data = JSON.parseObject(content);
+                                    MongoWatchWorkThread.update(convertInfo, data, condition);
+                                } else if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(type)) {
+                                    Map<String, ColumnValue> updateMap = JSON.parseObject(content, new TypeReference<Map<String, ColumnValue>>() {});
+                                    Map<String, ColumnValue> conditionMap = JSON.parseObject(condition, new TypeReference<Map<String, ColumnValue>>() {});
+                                    CanalWorkThread.update(convertInfo, updateMap, conditionMap);
+                                }
+                                break;
+                            case "DELETE":
+                                if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
+                                    MongoWatchWorkThread.delete(convertInfo, condition);
+                                } else if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(type)) {
+                                    Map<String, ColumnValue> conditionMap = JSON.parseObject(condition, new TypeReference<Map<String, ColumnValue>>() {});
+                                    CanalWorkThread.delete(convertInfo, conditionMap);
+                                }
+                                break;
+                            default:
+                                logger.info("operation:{} not support, jobId:{}", operationType, jobId);
+                        }
+                        incrementSyncWaitingMapper.deleteByOperation(jobId, idValue, operationType);
+                    } catch (Exception e) {
+                        logger.error("jobId:[},isValue:{}, execute error:{}",jobId, idValue, e.getMessage());
                     }
-                    break;
-                case "UPDATE":
-                case "REPLACE":
-                    data = JSON.parseObject(content);
-                    if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
-                        String id = incrementSyncWaiting.getCondition();
-                        MongoWatchWorkThread.update(convertInfo, data, id);
-                    }
-                    break;
-                case "DELETE":
-                    if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
-                        String id = incrementSyncWaiting.getCondition();
-                        MongoWatchWorkThread.delete(convertInfo, id);
-                    }
-                    break;
-                default:
-                    logger.info("operation:{} not support, jobId:{}", operationType, jobId);
+                }
+            } finally {
+                redisLock.unlock(lock);
             }
-            incrementSyncWaitingMapper.deleteByOperation(jobId, idValue, operationType);
         }
     }
 

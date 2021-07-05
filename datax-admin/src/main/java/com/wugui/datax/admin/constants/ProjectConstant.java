@@ -69,7 +69,49 @@ public class ProjectConstant {
     public static final String REDIS_UNION_COLLECTION__KEY_FORMAT = "datax.admin.union.collection.%s_%s_%s";
 
     /**
-     * 增量同步任务名
+     * canal增量同步任务名
      */
-    public static final String INCREMENT_TASK_NAME = "%s-%s-%s-thread-%d";
+    public static final String CANAL_INCREMENT_TASK_NAME = "%s-%s-thread-%d";
+
+    /**
+     * mongo watch增量同步任务名
+     */
+    public static final String MONGO_WATCH_INCREMENT_TASK_NAME = "%s-%s-%s-thread-%d";
+
+    /** type*/
+    public static final String TYPE = "type";
+
+    /** 默认mysql主键*/
+    public static final String DEFAULT_MYSQL_KEY = "id";
+
+    /**
+     * 操作方式
+     */
+    public enum ACTION_TYPE {
+
+        /** trigger*/
+        TRIGGER("trigger"),
+        /** update*/
+        UPDATE("update"),
+        /** remove*/
+        REMOVE("remove");
+
+        private final String val;
+
+        ACTION_TYPE(String val) {
+            this.val = val;
+        }
+
+        public String val(){
+            return this.val;
+        }
+    }
+
+    /** 锁自动过期时间 5分钟*/
+    public final static Integer LOCK_TIMEOUT_300 = 300;
+
+    /**
+     * 增量等待锁
+     */
+    public static final String INCREMENT_WAIT_JOB_LOCK = "increment_wait_job_lock_%d";
 }

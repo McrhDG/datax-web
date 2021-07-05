@@ -5,11 +5,14 @@ import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.wugui.datax.admin.constants.ProjectConstant;
 import com.wugui.datax.admin.core.util.IncrementUtil;
+import com.wugui.datax.admin.entity.ConvertInfo;
 import com.wugui.datax.admin.entity.JobInfo;
 import com.wugui.datax.admin.mapper.JobInfoMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -80,7 +83,7 @@ public class MysqlUtil {
     public static String getMysqlAddress(String jdbcUrl) {
         Matcher matcher = MYSQL_JDBC_URI_PATTERN.matcher(jdbcUrl);
         if(matcher.find()) {
-            return matcher.group(2);
+            return matcher.group(2).replace(".", "_").replace(":", "_");
         }
         return null;
     }
@@ -133,5 +136,85 @@ public class MysqlUtil {
             druidDataSource = addDataSource(jobInfo);
         }
         return druidDataSource;
+    }
+
+    /**
+     *
+     * @param convertInfo
+     * @param columnNames
+     * @return
+     */
+    public static String doGetInsertSql(ConvertInfo convertInfo, Set<String> columnNames) {
+        String insertSql = convertInfo.getInsertSql();
+        if (StringUtils.isBlank(insertSql)) {
+            String tableName = convertInfo.getTableName();
+            StringBuilder insertBuilder = new StringBuilder("INSERT IGNORE `");
+            insertBuilder.append(tableName);
+            insertBuilder.append("` (");
+            StringBuilder placeholders = new StringBuilder(" VALUES(");
+            for (String column : columnNames) {
+                insertBuilder.append("`").append(column).append("`").append(",");
+                placeholders.append("?").append(",");
+            }
+            insertBuilder.delete(insertBuilder.length() - 1, insertBuilder.length()).append(")");
+            placeholders.delete(placeholders.length() - 1, placeholders.length()).append(")");
+            insertSql = insertBuilder.append(placeholders).toString();
+            convertInfo.setInsertSql(insertSql);
+        }
+        return insertSql;
+    }
+
+    /**
+     * 获取更新语句
+     * @param tableName
+     * @param columnNames
+     * @param conditionSql
+     * @return
+     */
+    public static String doGetUpdateSql(String tableName, Set<String> columnNames, String conditionSql) {
+        String updateSql;
+        StringBuilder updateBuilder = new StringBuilder("UPDATE `" + tableName + "` SET ");
+        for (String column : columnNames) {
+            updateBuilder.append("`").append(column).append("`")
+                    .append("=").append("?").append(",");
+        }
+        updateBuilder.delete(updateBuilder.length() - 1, updateBuilder.length());
+        updateSql = updateBuilder.append(conditionSql).toString();
+        return updateSql;
+    }
+
+    /**
+     * 获取条件语句
+     * @param convertInfo
+     * @param columnNames
+     * @return
+     */
+    public static String doGetConditionSql(ConvertInfo convertInfo, Set<String> columnNames) {
+        String conditionSql = convertInfo.getConditionSql();
+        if(StringUtils.isBlank(conditionSql)) {
+            StringBuilder conditionBuilder = new StringBuilder(" WHERE ");
+            for (String column : columnNames) {
+                conditionBuilder.append("`").append(column).append("`").append("=").append("?").append(" AND");
+            }
+            conditionBuilder.delete(conditionBuilder.length() - 4, conditionBuilder.length());
+            conditionSql = conditionBuilder.toString();
+            convertInfo.setConditionSql(conditionSql);
+        }
+        return conditionSql;
+    }
+
+    /**
+     * 获取条件语句
+     * @param convertInfo
+     * @param columnNames
+     * @return
+     */
+    public static String doGetDeleteSql(ConvertInfo convertInfo, Set<String> columnNames) {
+        String deleteSql = convertInfo.getDeleteSql();
+        if (StringUtils.isBlank(deleteSql)) {
+            deleteSql = "DELETE FROM `" + convertInfo.getTableName() + "`" + doGetConditionSql(convertInfo, columnNames);
+            convertInfo.setDeleteSql(deleteSql);
+        }
+        return deleteSql;
     }
 }

@@ -1,6 +1,5 @@
 package com.wugui.datax.admin.entity;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
 
 import java.util.Map;
@@ -53,11 +52,6 @@ public class ConvertInfo {
      * 插入语句
      */
     private String insertSql;
-
-    /**
-     * 插入语句
-     */
-    private String replaceSql;
 
     /**
      * 删除语句

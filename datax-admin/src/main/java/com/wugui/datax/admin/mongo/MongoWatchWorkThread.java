@@ -1,9 +1,6 @@
 package com.wugui.datax.admin.mongo;
 
-import cn.hutool.core.io.watch.WatchException;
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONObject;
-import com.alibaba.fastjson.serializer.SerializerFeature;
+import com.mongodb.MongoInterruptedException;
 import com.mongodb.client.ChangeStreamIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
@@ -16,7 +13,6 @@ import com.wugui.datax.admin.constants.ProjectConstant;
 import com.wugui.datax.admin.core.conf.JobAdminConfig;
 import com.wugui.datax.admin.core.util.IncrementUtil;
 import com.wugui.datax.admin.entity.ConvertInfo;
-import com.wugui.datax.admin.entity.IncrementSyncWaiting;
 import com.wugui.datax.admin.util.MongoUtil;
 import com.wugui.datax.admin.util.MysqlUtil;
 import com.wugui.datax.admin.util.SpringContextHolder;
@@ -67,27 +63,20 @@ public class MongoWatchWorkThread extends Thread {
         this.collection = collection;
     }
 
-    public String getDatabase() {
-        return database;
-    }
-
-    public String getCollection() {
-        return collection;
-    }
-
     @Override
     public void run() {
-        Thread.currentThread().setName(String.format(ProjectConstant.INCREMENT_TASK_NAME, "changeStreamWorker", database, collection, THREAD_NUMBER.getAndIncrement()));
+        Thread currentThread = Thread.currentThread();
+        currentThread.setName(String.format(ProjectConstant.MONGO_WATCH_INCREMENT_TASK_NAME, "changeStreamWorker", database, collection, THREAD_NUMBER.getAndIncrement()));
+        String tableUnion = String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, connectUrl, database, collection);
+        SpringContextHolder.getBean(MongoWatchWork.class).addTask(tableUnion, currentThread);
         int retry = 0;
         long sleepTime = 1000L;
-        Thread currentThread = Thread.currentThread();
         int connectionTry = JobAdminConfig.getAdminConfig().getMongoConnectionTry();
         String redisUnionTable = String.format(ProjectConstant.REDIS_UNION_COLLECTION__KEY_FORMAT, connectUrl, database, collection);
         MongoClient mongoClient;
         while (true) {
             try {
-                String tableUnion = String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, connectUrl, database, collection);
-                Set<Integer> jobIds  = IncrementUtil.getTableJobsMap().get(tableUnion);
+                Set<Integer> jobIds  = IncrementUtil.getCollectionJobsMap().get(tableUnion);
                 if (CollectionUtils.isEmpty(jobIds)) {
                     log.error("jobIds is empty, finish the task");
                     return;
@@ -120,6 +109,13 @@ public class MongoWatchWorkThread extends Thread {
                     resumeToken = streamDoc.getResumeToken().getString("_data").getValue();
                     log.debug("database:[{}],collection:[{}], resumeToken:{}, id:{}", database, collection, resumeToken, documentKey);
                     redisTemplate.opsForValue().set(redisUnionTable, resumeToken);
+                    tableUnion = String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, connectUrl, database, collection);
+                    jobIds  = IncrementUtil.getCollectionJobsMap().get(tableUnion);
+                    if (CollectionUtils.isEmpty(jobIds)) {
+                        log.error("jobIds is empty, finish the task");
+                        redisTemplate.delete(redisUnionTable);
+                        return;
+                    }
                     try {
                         switch (operationType) {
                             case INSERT:
@@ -143,11 +139,9 @@ public class MongoWatchWorkThread extends Thread {
                         break;
                     }
                 }
-                //线程中断给予退出
-                if (currentThread.isInterrupted()) {
-                    log.info("thread is Interrupted, exit the thread");
-                    return;
-                }
+            } catch (MongoInterruptedException e) {
+                exit();
+                return;
             } catch (Throwable e) {
                 log.error("process error!", e);
                 try {
@@ -158,14 +152,19 @@ public class MongoWatchWorkThread extends Thread {
                     Thread.sleep(sleepTime);
                 } catch (InterruptedException e1) {
                     log.error("InterruptedException", e1);
-                }
-                //线程中断给予退出
-                if (currentThread.isInterrupted()) {
-                    log.info("thread is Interrupted, exit the thread");
                     return;
                 }
             }
         }
+    }
+
+    /**
+     * 线程中断给予退出
+     */
+    private void exit() {
+        log.info("thread is Interrupted, exit the thread");
+        String tableUnion = String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, connectUrl, database, collection);
+        SpringContextHolder.getBean(MongoWatchWork.class).closeTask(tableUnion);
     }
 
     /**
@@ -178,33 +177,20 @@ public class MongoWatchWorkThread extends Thread {
         Map<String, Object> mongoData = MongoUtil.toParseMap(fullDocument, documentKey);
         String id = MongoUtil.getDocumentKeyId(documentKey);
         String tableUnion = String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, connectUrl, database, collection);
-        Set<Integer> jobIds  = IncrementUtil.getTableJobsMap().get(tableUnion);
+        Set<Integer> jobIds  = IncrementUtil.getCollectionJobsMap().get(tableUnion);
         if (CollectionUtils.isEmpty(jobIds)) {
             return;
         }
         for (Integer jobId : jobIds) {
-            if (IncrementUtil.isRunningJob(jobId)) {
-                //插入语句清除更新语句、之前的插入语句
-                JobAdminConfig.getAdminConfig().getIncrementSyncWaitingMapper().deleteByOperation(jobId, id, OperationType.UPDATE.name());
-                JobAdminConfig.getAdminConfig().getIncrementSyncWaitingMapper().deleteByOperation(jobId, id, OperationType.INSERT.name());
-                //保存插入语句
-                IncrementSyncWaiting incrementSyncWaiting = IncrementSyncWaiting.builder()
-                        .jobId(jobId).type(ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val())
-                        .operationType(OperationType.INSERT.name())
-                        .content(JSON.toJSONString(mongoData, SerializerFeature.WriteDateUseDateFormat))
-                        .idValue(id).build();
-                JobAdminConfig.getAdminConfig().getIncrementSyncWaitingMapper().save(incrementSyncWaiting);
-                continue;
-            }
-            ConvertInfo convertInfo = IncrementUtil.getConvertInfo(jobId);
+            ConvertInfo convertInfo = IncrementUtil.isContinue(jobId, OperationType.INSERT.name(), ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH, clusterTime.getTime() * 1000L, mongoData, null, id);
             if (convertInfo == null) {
-                log.error("jobId:{}, 不存在读写装换关系", jobId);
                 continue;
             }
-            if (clusterTime.getTime()*1000L<convertInfo.getInitTimestamp()) {
-                continue;
+            try {
+                insert(convertInfo, mongoData);
+            } catch (Exception e) {
+                IncrementUtil.saveWaiting(jobId, OperationType.INSERT.name(), ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH, mongoData, null, id);
             }
-            insert(convertInfo, mongoData);
         }
     }
 
@@ -241,42 +227,20 @@ public class MongoWatchWorkThread extends Thread {
     private void update(Map<String, Object> mongoData, BsonDocument documentKey, BsonTimestamp clusterTime) {
         String id = MongoUtil.getDocumentKeyId(documentKey);
         String tableUnion = String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, connectUrl, database, collection);
-        Set<Integer> jobIds  = IncrementUtil.getTableJobsMap().get(tableUnion);
+        Set<Integer> jobIds  = IncrementUtil.getCollectionJobsMap().get(tableUnion);
         if (CollectionUtils.isEmpty(jobIds)) {
             return;
         }
         for (Integer jobId : jobIds) {
-            if (IncrementUtil.isRunningJob(jobId)) {
-                //更新语句保留一条就够了
-                IncrementSyncWaiting incrementSyncWaiting = JobAdminConfig.getAdminConfig().getIncrementSyncWaitingMapper().loadUpdate(jobId);
-                if(incrementSyncWaiting !=null) {
-                    //更新更新字段
-                    String content = incrementSyncWaiting.getContent();
-                    JSONObject jsonObject = JSON.parseObject(content);
-                    mongoData.putAll(jsonObject);
-                    content = JSON.toJSONString(mongoData, SerializerFeature.WriteDateUseDateFormat);
-                    JobAdminConfig.getAdminConfig().getIncrementSyncWaitingMapper().updateContent(incrementSyncWaiting.getId(), content);
-                } else {
-                    //保存更新语句
-                    incrementSyncWaiting = IncrementSyncWaiting.builder()
-                            .jobId(jobId).type(ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val())
-                            .operationType(OperationType.UPDATE.name())
-                            .content(JSON.toJSONString(mongoData, SerializerFeature.WriteDateUseDateFormat))
-                            .condition(id)
-                            .idValue(id).build();
-                    JobAdminConfig.getAdminConfig().getIncrementSyncWaitingMapper().save(incrementSyncWaiting);
-                }
-                continue;
-            }
-            ConvertInfo convertInfo = IncrementUtil.getConvertInfo(jobId);
+            ConvertInfo convertInfo = IncrementUtil.isContinue(jobId, OperationType.UPDATE.name(), ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH, clusterTime.getTime() * 1000L, mongoData, id, id);
             if (convertInfo == null) {
-                log.error("jobId:{}, 不存在读写装换关系", jobId);
                 continue;
             }
-            if (clusterTime.getTime()*1000L<convertInfo.getInitTimestamp()) {
-                continue;
+            try {
+                update(convertInfo, mongoData, id);
+            } catch (Exception e) {
+                IncrementUtil.saveWaiting(jobId, OperationType.UPDATE.name(), ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH, mongoData, id, id);
             }
-            update(convertInfo, mongoData, id);
         }
     }
 
@@ -288,32 +252,20 @@ public class MongoWatchWorkThread extends Thread {
     private void delete(BsonDocument documentKey, BsonTimestamp clusterTime) {
         String id = MongoUtil.getDocumentKeyId(documentKey);
         String tableUnion = String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, connectUrl, database, collection);
-        Set<Integer> jobIds  = IncrementUtil.getTableJobsMap().get(tableUnion);
+        Set<Integer> jobIds  = IncrementUtil.getCollectionJobsMap().get(tableUnion);
         if (CollectionUtils.isEmpty(jobIds)) {
             return;
         }
         for (Integer jobId : jobIds) {
-            if (IncrementUtil.isRunningJob(jobId)) {
-                //删除语句清除所有
-                JobAdminConfig.getAdminConfig().getIncrementSyncWaitingMapper().deleteByJobIdAndIdValue(jobId, id);
-                //保存删除语句
-                IncrementSyncWaiting incrementSyncWaiting = IncrementSyncWaiting.builder()
-                        .jobId(jobId).type(ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val())
-                        .operationType(OperationType.DELETE.name())
-                        .condition(id)
-                        .idValue(id).build();
-                JobAdminConfig.getAdminConfig().getIncrementSyncWaitingMapper().save(incrementSyncWaiting);
-                continue;
-            }
-            ConvertInfo convertInfo = IncrementUtil.getConvertInfo(jobId);
+            ConvertInfo convertInfo = IncrementUtil.isContinue(jobId, OperationType.DELETE.name(), ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH, clusterTime.getTime() * 1000L, null, id, id);
             if (convertInfo == null) {
-                log.error("jobId:{}, 不存在读写装换关系", jobId);
                 continue;
             }
-            if (clusterTime.getTime()*1000L<convertInfo.getInitTimestamp()) {
-                continue;
+            try {
+                delete(convertInfo, id);
+            } catch (Exception e) {
+                IncrementUtil.saveWaiting(jobId, OperationType.DELETE.name(), ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH, null, id, id);
             }
-            delete(convertInfo, id);
         }
     }
 
@@ -322,24 +274,18 @@ public class MongoWatchWorkThread extends Thread {
      * @param convertInfo
      * @param mongoData
      */
-    public static void insert(ConvertInfo convertInfo, Map<String, Object> mongoData) {
-        // 数据源中的各个表
-        Map<String, String> relation = convertInfo.getTableColumns();
-        Map<String, Object> mysqlData = columnConvert(mongoData, relation);
-        // 每个表 执行sql
-        String insertSql;
-        insertSql = convertInfo.getInsertSql();
-        if (StringUtils.isBlank(insertSql)) {
-            insertSql = doGetInsertSql(convertInfo.getTableName(), mysqlData);
-            convertInfo.setInsertSql(insertSql);
-        }
-
+    public static void insert(ConvertInfo convertInfo, Map<String, Object> mongoData) throws SQLException {
         DataSource dataSource = MysqlUtil.getDataSource(convertInfo.getWriteUrl(), convertInfo.getJobId());
         if (dataSource==null) {
             log.error("jobId:{}, 无法找到可用数据源", convertInfo.getJobId());
             return;
         }
-        int update = 0;
+        // 数据源中的各个表
+        Map<String, String> relation = convertInfo.getTableColumns();
+        Map<String, Object> mysqlData = columnConvert(mongoData, relation);
+        // 每个表 执行sql
+        String insertSql = doGetInsertSql(convertInfo.getTableName(), mysqlData);
+        int update;
         int index = 0;
         Connection connection = null;
         try {
@@ -351,6 +297,7 @@ public class MongoWatchWorkThread extends Thread {
             update = preparedStatement.executeUpdate();
         } catch (Exception e) {
             log.error("columns.size:{} index:{}, error:", mysqlData.size(), index, e);
+            throw e;
         } finally {
             try {
                 assert connection != null;
@@ -395,7 +342,7 @@ public class MongoWatchWorkThread extends Thread {
         StringBuilder insertBuilder = new StringBuilder("INSERT IGNORE `");
         insertBuilder.append(tableName);
         insertBuilder.append("` (");
-        StringBuilder placeholders = new StringBuilder("VALUES(");
+        StringBuilder placeholders = new StringBuilder(" VALUES(");
         for (Map.Entry<String, Object> entry : data.entrySet()) {
             column = entry.getKey();
             insertBuilder.append("`").append(column).append("`").append(",");
@@ -436,26 +383,29 @@ public class MongoWatchWorkThread extends Thread {
      * @param updateData
      * @param idValue
      */
-    public static void update(ConvertInfo convertInfo, Map<String, Object> updateData, String idValue) {
-        // 数据源中的各个表
-        Map<String, String> relation = convertInfo.getTableColumns();
-
-        Map<String, Object> mysqlData = columnConvert(updateData, relation);
-        // 执行sql
-        // 每个表 执行sql
-        String conditionSql = convertInfo.getConditionSql();
-        String unionKey = MongoUtil.getUnionKey(relation);
-        mysqlData.remove(unionKey);
-        if(StringUtils.isBlank(conditionSql)) {
-            conditionSql = " WHERE "+ unionKey+" = ?";
-            convertInfo.setConditionSql(conditionSql);
-        }
-        String updateSql = doGetUpdateSql(convertInfo.getTableName(), mysqlData, conditionSql);
+    public static void update(ConvertInfo convertInfo, Map<String, Object> updateData, String idValue) throws SQLException {
         DataSource dataSource = MysqlUtil.getDataSource(convertInfo.getWriteUrl(), convertInfo.getJobId());
         if (dataSource==null) {
             log.error("jobId:{}, 无法找到可用数据源", convertInfo.getJobId());
             return;
         }
+        // 数据源中的各个表
+        Map<String, String> relation = convertInfo.getTableColumns();
+
+        Map<String, Object> mysqlData = columnConvert(updateData, relation);
+        // 每个表 执行sql
+        String unionKey = MongoUtil.getUnionKey(relation);
+        if (StringUtils.isBlank(unionKey)) {
+            log.info("主键不明，无法更新");
+            return;
+        }
+        String conditionSql = MysqlUtil.doGetConditionSql(convertInfo, Collections.singleton(unionKey));
+        mysqlData.remove(unionKey);
+        if (mysqlData.isEmpty()) {
+            log.info("无需更新");
+            return;
+        }
+        String updateSql = MysqlUtil.doGetUpdateSql(convertInfo.getTableName(), mysqlData.keySet(), conditionSql);
         int update;
         int index = 0;
         Connection connection = null;
@@ -469,7 +419,7 @@ public class MongoWatchWorkThread extends Thread {
             update = preparedStatement.executeUpdate();
         } catch (Exception e) {
             log.error("columns.size:{} index:{}, error: ", mysqlData.size(), index, e);
-            throw new WatchException("sql 执行异常", e);
+            throw e;
         } finally {
             try {
                 assert connection != null;
@@ -483,46 +433,25 @@ public class MongoWatchWorkThread extends Thread {
     }
 
     /**
-     * 获取更新语句
-     * @param tableName
-     * @param data
-     * @param conditionSql
-     * @return
-     */
-    private static String doGetUpdateSql(String tableName, Map<String, Object> data, String conditionSql) {
-        String updateSql;
-        StringBuilder updateBuilder = new StringBuilder("UPDATE `" + tableName + "` SET");
-        for (Map.Entry<String, Object> entry : data.entrySet()) {
-            String column = entry.getKey();
-            updateBuilder.append("`").append(column).append("`")
-                    .append("=").append("?").append(",");
-        }
-        updateBuilder.delete(updateBuilder.length() - 1, updateBuilder.length());
-        updateSql = updateBuilder.append(conditionSql).toString();
-        return updateSql;
-    }
-
-
-    /**
      * 更新
      * @param convertInfo
      * @param id
      */
-    public static void delete(ConvertInfo convertInfo, String id) {
-        // 数据源中的各个表
-        Map<String, String> relation = convertInfo.getTableColumns();
-        // 每个表 执行sql
-        String deleteSql = convertInfo.getDeleteSql();
-        String unionKey = MongoUtil.getUnionKey(relation);
-        if (StringUtils.isBlank(deleteSql)) {
-            deleteSql = "DELETE FROM `" + convertInfo.getTableName() + "` WHERE " + unionKey + " = ?";
-            convertInfo.setDeleteSql(deleteSql);
-        }
+    public static void delete(ConvertInfo convertInfo, String id) throws SQLException {
         DataSource dataSource = MysqlUtil.getDataSource(convertInfo.getWriteUrl(), convertInfo.getJobId());
         if (dataSource==null) {
             log.error("jobId:{}, 无法找到可用数据源", convertInfo.getJobId());
             return;
         }
+        // 数据源中的各个表
+        Map<String, String> relation = convertInfo.getTableColumns();
+        // 每个表 执行sql
+        String unionKey = MongoUtil.getUnionKey(relation);
+        if (StringUtils.isBlank(unionKey)) {
+            log.info("主键不明，无法删除");
+            return;
+        }
+        String deleteSql = MysqlUtil.doGetDeleteSql(convertInfo, Collections.singleton(unionKey));
         Connection connection = null;
         try {
             connection = dataSource.getConnection();
@@ -532,7 +461,8 @@ public class MongoWatchWorkThread extends Thread {
             int update = preparedStatement.executeUpdate();
             log.info("affected row:{}", update);
         } catch (Exception e) {
-            log.error("delete error, id:{}", id, e);
+            log.error("id:{},delete error:", id, e);
+            throw e;
         } finally {
             try {
                 assert connection != null;

@@ -12,6 +12,11 @@ import java.util.List;
  */
 public interface AdminBiz {
 
+    /**
+     * 执行增量等待方法
+     */
+    void executeIncrementSyncWaitings();
+
 
     // ---------------------- callback ----------------------
 

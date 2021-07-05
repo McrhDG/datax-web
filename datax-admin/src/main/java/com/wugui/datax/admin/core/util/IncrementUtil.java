@@ -1,17 +1,19 @@
 package com.wugui.datax.admin.core.util;
 
-import com.alibaba.druid.pool.DruidDataSource;
+import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.TypeReference;
+import com.alibaba.fastjson.serializer.SerializerFeature;
 import com.google.common.collect.Maps;
-import com.wugui.datax.admin.canal.DataSourceFactory;
+import com.mongodb.client.model.changestream.OperationType;
+import com.wugui.datax.admin.canal.ColumnValue;
 import com.wugui.datax.admin.constants.ProjectConstant;
 import com.wugui.datax.admin.core.conf.JobAdminConfig;
 import com.wugui.datax.admin.entity.ConvertInfo;
+import com.wugui.datax.admin.entity.IncrementSyncWaiting;
 import com.wugui.datax.admin.entity.JobInfo;
 import com.wugui.datax.admin.mongo.MongoWatchWork;
-import com.wugui.datax.admin.util.AESUtil;
 import com.wugui.datax.admin.util.MysqlUtil;
 import com.wugui.datax.admin.util.SpringContextHolder;
 import org.apache.commons.lang3.StringUtils;
@@ -19,7 +21,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.util.CollectionUtils;
 
-import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Map;
@@ -36,12 +37,17 @@ import java.util.concurrent.CopyOnWriteArraySet;
  */
 public class IncrementUtil {
 
-    private static final Logger logger = LoggerFactory.getLogger(IncrementUtil.class);
+    private static final Logger log = LoggerFactory.getLogger(IncrementUtil.class);
 
     /**
      * 任务装换关系
      */
     private static final Map<Integer, ConvertInfo> CONVERT_INFO_MAP = new ConcurrentHashMap<>();
+
+    /**
+     * collection-任务关系
+     */
+    private static final Map<String, Set<Integer>> COLLECTION_JOBS_MAP = new ConcurrentHashMap<>();
 
     /**
      * 表-任务关系
@@ -71,7 +77,7 @@ public class IncrementUtil {
                 initMongoWatch(jobInfo, isInit);
             }
         } catch (Exception e) {
-            logger.error("initIncrementData error:", e);
+            log.error("initIncrementData error:", e);
         }
     }
 
@@ -80,31 +86,24 @@ public class IncrementUtil {
      * @param isInit
      */
     public static void initCanal(JobInfo jobInfo, boolean isInit) {
-
         if (jobInfo.getIncrementType()>0) {
-            logger.info("jobId:{}, 存在自增设置，无需继续处理增量数据", jobInfo.getId());
+            log.info("jobId:{}, 存在自增设置，无需继续处理增量数据", jobInfo.getId());
             return;
         }
 
-        String encryptJobJson = jobInfo.getJobJson();
-        JSONObject jsonObj = JSONObject.parseObject(encryptJobJson);
-        JSONObject jobJson = jsonObj.getJSONObject("job");
-        JSONArray contents = jobJson.getJSONArray("content");
-        JSONObject content = (JSONObject) contents.get(0);
-
+        JSONObject content = IncrementUtil.getContent(jobInfo);
         JSONObject reader = content.getJSONObject("reader");
         String name = reader.getString("name");
         if (!ProjectConstant.MYSQL_READER.equalsIgnoreCase(name)) {
             return;
         }
         JSONObject readerParam = reader.getJSONObject("parameter");
-
         JSONArray readerColumnArray = readerParam.getJSONArray("column");
         JSONArray readerConnections = readerParam.getJSONArray("connection");
-        JSONObject readerConnectionJsonObj = (JSONObject) readerConnections.get(0);
+        JSONObject readerConnectionJsonObj = readerConnections.getJSONObject(0);
         String querySql = readerConnectionJsonObj.getString("querySql");
         if (StringUtils.isNotBlank(querySql)) {
-            logger.info("jobId:{}, 存在自定义sql，无需继续处理增量数据", jobInfo.getId());
+            log.info("jobId:{}, 存在自定义sql，无需继续处理增量数据", jobInfo.getId());
             return;
         }
         // writer
@@ -117,61 +116,35 @@ public class IncrementUtil {
         JSONArray writerColumnArray = writerParam.getJSONArray("column");
         //列对应的关系
         if(readerColumnArray.size() > writerColumnArray.size()) {
-            logger.info("jobId:{}, 字段无法对应，无法继续处理增量数据", jobInfo.getId());
+            log.info("jobId:{}, 字段无法对应，无法继续处理增量数据", jobInfo.getId());
             return;
         }
 
-        String readerJdbcUrl = (String)readerConnectionJsonObj.getJSONArray("jdbcUrl").get(0);
-        String readerTable = (String)readerConnectionJsonObj.getJSONArray("table").get(0);
+        String readerJdbcUrl = readerConnectionJsonObj.getJSONArray("jdbcUrl").getString(0);
+        String readerTable = readerConnectionJsonObj.getJSONArray("table").getString(0);
 
         String readerDataBase = MysqlUtil.getMysqlDataBase(readerJdbcUrl);
 
-        // 获取到写入的库table 丢给canal一个增量同步任务
+        //表-任务
+        String address =  MysqlUtil.getMysqlAddress(readerJdbcUrl);
+        String tableUnion = String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, address, readerDataBase, readerTable);
+        IncrementUtil.putTableJob(tableUnion, jobInfo.getId());
 
-        String username = writerParam.getString("username");
-        username = AESUtil.decrypt(username);
-        String password = writerParam.getString("password");
-        password = AESUtil.decrypt(password);
-        JSONArray writerConnections = writerParam.getJSONArray("connection");
-        JSONObject writerConnectionJsonObj = (JSONObject) writerConnections.get(0);
-        String writeTable = writerConnectionJsonObj.getJSONArray("table").getString(0);
-        String writerJdbcUrl = writerConnectionJsonObj.getString("jdbcUrl");
-        DruidDataSource druidDataSource = new DruidDataSource();
-        druidDataSource.setUrl(writerJdbcUrl);
-        druidDataSource.setUsername(username);
-        druidDataSource.setPassword(password);
-
-        // 写入的时表名可能不一样 表名可能需要转化
-        DataSourceFactory.instance().putConvert(readerTable, writeTable);
-        // canal监听的库和表
-        String dataBaseTable = readerDataBase + "|" + readerTable;
-        DataSourceFactory.instance().putTableColumn(dataBaseTable, readerColumnArray, writerColumnArray);
-        // 重启初始化
-        if (isInit) {
-            Long canalTimestamp = jobInfo.getIncrementSyncTime().getTime();
-            DataSourceFactory.instance().addNewTask(dataBaseTable, druidDataSource, canalTimestamp);
-            return;
-        }
         // 首次初始化
-        long initTimestamp = System.currentTimeMillis();
-        // 添加新的canal任务
-        DataSourceFactory.instance().addNewTask(dataBaseTable, druidDataSource, initTimestamp);
+        long initTimestamp;
+        if (isInit) {
+            initTimestamp = jobInfo.getIncrementSyncTime().getTime();
+        } else {
+            initTimestamp = System.currentTimeMillis();
+            jobInfo.setIncrementSyncType(ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val());
+            jobInfo.setIncrementSyncTime(new Date(initTimestamp));
+            JobAdminConfig.getAdminConfig().getJobInfoMapper().update(jobInfo);
+        }
 
-        // 添加 创建时间的where 语句 并保存起来
-        String initDateStr = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(initTimestamp);
-
-        String whereClause = "create_time < " + "'" + initDateStr + "'";
-        readerParam.put("where", whereClause);
-
-        reader.put("parameter", readerParam);
-        content.put("reader", reader);
-        jobInfo.setIncrementSyncType(ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val());
-        jobInfo.setIncrementSyncTime(new Date(initTimestamp));
-        contents.add(0, content);
-        jobJson.put("content", contents);
-        jsonObj.put("job", jobJson);
-        jobInfo.setJobJson(jsonObj.toJSONString());
-        JobAdminConfig.getAdminConfig().getJobInfoMapper().update(jobInfo);
+        //装换关系
+        Map<String, String> convertTableColumn = mysqlConvertTableColumn(readerColumnArray, writerColumnArray);
+        putConvertInfo(jobInfo, writerParam, initTimestamp, convertTableColumn);
+        log.info("jobId:{}, initCanal, init:{}", jobInfo.getId(), isInit);
     }
 
     /**
@@ -184,24 +157,20 @@ public class IncrementUtil {
         JSONObject jsonObj = JSONObject.parseObject(encryptJobJson);
         JSONObject jobJson = jsonObj.getJSONObject("job");
         JSONArray contents = jobJson.getJSONArray("content");
-        JSONObject content = contents.getJSONObject(0);
-        return content;
+        return contents.getJSONObject(0);
     }
-
 
 
     /**
      * @param jobInfo
      */
     public static void initMongoWatch(JobInfo jobInfo, boolean isInit) {
-
         if (jobInfo.getIncrementType()>0) {
-            logger.info("jobId:{}, 存在自增设置，无需继续处理增量数据", jobInfo.getId());
+            log.info("jobId:{}, 存在自增设置，无需继续处理增量数据", jobInfo.getId());
             return;
         }
 
         JSONObject content = IncrementUtil.getContent(jobInfo);
-
         JSONObject reader = content.getJSONObject("reader");
         String readerName = reader.getString("name");
         if (!ProjectConstant.MONGODB_READER.equalsIgnoreCase(readerName)) {
@@ -219,26 +188,20 @@ public class IncrementUtil {
         JSONObject writerParam = writer.getJSONObject("parameter");
         JSONArray writerColumnArray = writerParam.getJSONArray("column");
         if(readerColumnArray.size() > writerColumnArray.size()) {
-            logger.info("jobId:{}, 字段无法对应，无法继续处理增量数据", jobInfo.getId());
+            log.info("jobId:{}, 字段无法对应，无法继续处理增量数据", jobInfo.getId());
             return;
         }
 
         String readerDataBase = readerParam.getString("dbName");
         String collection = readerParam.getString("collectionName");
 
-
         //表-任务
         Set<String> addressSet = readerParam.getObject("address", new TypeReference<Set<String>>(){});
         String address = StringUtils.join(addressSet, ',');
         String tableUnion = String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, address, readerDataBase, collection);
-        IncrementUtil.putTableJob(tableUnion, jobInfo.getId());
+        IncrementUtil.putCollectionJob(tableUnion, jobInfo.getId());
 
-        //装换关系
-        Map<String, String> convertTableColumn = mongoConvertTableColumn(readerColumnArray, writerColumnArray);
-        JSONArray writerConnections = writerParam.getJSONArray("connection");
-        JSONObject writerConnectionJsonObj = (JSONObject) writerConnections.get(0);
-        String writerJdbcUrl = writerConnectionJsonObj.getString("jdbcUrl");
-        String writerUrl = MysqlUtil.getMysqlUrl(writerJdbcUrl);
+
         // 首次初始化
         long initTimestamp;
         if (isInit) {
@@ -250,14 +213,24 @@ public class IncrementUtil {
             JobAdminConfig.getAdminConfig().getJobInfoMapper().update(jobInfo);
         }
 
-        String writeTable = writerConnectionJsonObj.getJSONArray("table").getString(0);
-        ConvertInfo convertInfo = new ConvertInfo(jobInfo.getId(), writeTable, convertTableColumn, writerUrl, initTimestamp);
-        IncrementUtil.putConvertInfo(jobInfo.getId(), convertInfo);
+        //装换关系
+        Map<String, String> convertTableColumn = mongoConvertTableColumn(readerColumnArray, writerColumnArray);
+        putConvertInfo(jobInfo, writerParam, initTimestamp, convertTableColumn);
 
         MongoWatchWork mongoWatchWork = SpringContextHolder.getBean(MongoWatchWork.class);
         mongoWatchWork.addTask(tableUnion);
+        log.info("jobId:{}, initMongoWatch, init:{}", jobInfo.getId(), isInit);
     }
 
+    private static void putConvertInfo(JobInfo jobInfo, JSONObject writerParam, long initTimestamp, Map<String, String> convertTableColumn) {
+        JSONArray writerConnections = writerParam.getJSONArray("connection");
+        JSONObject writerConnectionJsonObj = writerConnections.getJSONObject(0);
+        String writerJdbcUrl = writerConnectionJsonObj.getString("jdbcUrl");
+        String writerUrl = MysqlUtil.getMysqlUrl(writerJdbcUrl);
+        String writeTable = writerConnectionJsonObj.getJSONArray("table").getString(0);
+        ConvertInfo convertInfo = new ConvertInfo(jobInfo.getId(), writeTable, convertTableColumn, writerUrl, initTimestamp);
+        IncrementUtil.putConvertInfo(jobInfo.getId(), convertInfo);
+    }
 
 
     /**
@@ -301,6 +274,28 @@ public class IncrementUtil {
     }
 
     /**
+     * 加入表任务关系
+     * @param tableUnion
+     * @param jobId
+     */
+    public static void putCollectionJob(String tableUnion, Integer jobId) {
+        Set<Integer> jobIds = COLLECTION_JOBS_MAP.get(tableUnion);
+        if (CollectionUtils.isEmpty(jobIds)) {
+            jobIds = new HashSet<>();
+        }
+        jobIds.add(jobId);
+        COLLECTION_JOBS_MAP.put(tableUnion, jobIds);
+    }
+
+    /**
+     * 获取表任务关系
+     * @return
+     */
+    public static Map<String, Set<Integer>> getCollectionJobsMap() {
+        return COLLECTION_JOBS_MAP;
+    }
+
+    /**
      * mysql字段转换关系
      * @param readerColumn
      * @param writerColumn
@@ -308,8 +303,8 @@ public class IncrementUtil {
     public static Map<String,String>  mysqlConvertTableColumn(JSONArray readerColumn, JSONArray writerColumn) {
         Map<String,String> map = Maps.newHashMapWithExpectedSize(readerColumn.size());
         for (int i = 0; i < readerColumn.size(); i++) {
-            String key = (String) readerColumn.get(i);
-            String value = (String) writerColumn.get(i);
+            String key = readerColumn.getString(i);
+            String value = writerColumn.getString(i);
             if(StringUtils.isNotBlank(value)) {
                 map.put(key.replace("`", ""), value.replace("`", ""));
             }
@@ -328,7 +323,7 @@ public class IncrementUtil {
         for (int i = 0; i < readerColumn.size(); i++) {
             JSONObject jObj = readerColumn.getJSONObject(i);
             String key = jObj.getString("name");
-            String value = (String) writerColumn.get(i);
+            String value = writerColumn.getString(i);
             if(StringUtils.isNotBlank(value)) {
                 map.put(key, value.replace("`", ""));
             }
@@ -379,6 +374,27 @@ public class IncrementUtil {
                 Set<String> addressSet = readerParam.getObject("address", new TypeReference<Set<String>>(){});
                 String address = StringUtils.join(addressSet, ',');
                 String tableUnion = String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, address, readerDataBase, collection);
+                if (COLLECTION_JOBS_MAP.containsKey(tableUnion)) {
+                    Set<Integer> jobIds = COLLECTION_JOBS_MAP.get(tableUnion);
+                    if (!jobIds.isEmpty()) {
+                        jobIds.remove(jobInfo.getId());
+                    }
+
+                    if (jobIds.isEmpty()) {
+                        COLLECTION_JOBS_MAP.remove(tableUnion);
+                        MongoWatchWork mongoWatchWork = SpringContextHolder.getBean(MongoWatchWork.class);
+                        mongoWatchWork.removeTask(tableUnion);
+                    }
+                }
+            } else if(ProjectConstant.MYSQL_READER.equalsIgnoreCase(readerName)) {
+                JSONObject readerParam = reader.getJSONObject("parameter");
+                JSONArray readerConnections = readerParam.getJSONArray("connection");
+                JSONObject readerConnectionJsonObj = (JSONObject) readerConnections.get(0);
+                String readerJdbcUrl = readerConnectionJsonObj.getJSONArray("jdbcUrl").getString(0);
+                String readerAddress = MysqlUtil.getMysqlAddress(readerJdbcUrl);
+                String readerDataBase = MysqlUtil.getMysqlDataBase(readerJdbcUrl);
+                String readerTable = readerConnectionJsonObj.getJSONArray("table").getString(0);
+                String tableUnion = String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, readerAddress, readerDataBase, readerTable);
                 if (TABLE_JOBS_MAP.containsKey(tableUnion)) {
                     Set<Integer> jobIds = TABLE_JOBS_MAP.get(tableUnion);
                     if (!jobIds.isEmpty()) {
@@ -387,32 +403,114 @@ public class IncrementUtil {
 
                     if (jobIds.isEmpty()) {
                         TABLE_JOBS_MAP.remove(tableUnion);
-                        MongoWatchWork mongoWatchWork = SpringContextHolder.getBean(MongoWatchWork.class);
-                        mongoWatchWork.removeTask(tableUnion);
                     }
                 }
-            } else if(ProjectConstant.MYSQL_READER.equalsIgnoreCase(readerName)) {
-                /*JSONObject readerParam = reader.getJSONObject("parameter");
-                JSONArray readerConnections = readerParam.getJSONArray("connection");
-                JSONObject readerConnectionJsonObj = (JSONObject) readerConnections.get(0);
-                String readerJdbcUrl = readerConnectionJsonObj.getJSONArray("jdbcUrl").getString(0);
-                String readerAddress = MysqlUtil.getMysqlAddress(readerJdbcUrl);
-                String readerDataBase = MysqlUtil.getMysqlDataBase(readerJdbcUrl);
-                String readerTable = readerConnectionJsonObj.getJSONArray("table").getString(0);
-                tableUnion = String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, readerAddress, readerDataBase, readerTable);*/
-                JSONObject readerParam = reader.getJSONObject("parameter");
-                JSONArray readerConnections = readerParam.getJSONArray("connection");
-                JSONObject readerConnectionJsonObj = (JSONObject) readerConnections.get(0);
-                String readerJdbcUrl = (String)readerConnectionJsonObj.getJSONArray("jdbcUrl").get(0);
-                String readerTable = (String)readerConnectionJsonObj.getJSONArray("table").get(0);
-
-                String readerDataBase = MysqlUtil.getMysqlDataBase(readerJdbcUrl);
-                // canal监听的库和表
-                String dataBaseTable = readerDataBase + "|" + readerTable;
-                DataSourceFactory.instance().closeTask(dataBaseTable);
             }
+            CONVERT_INFO_MAP.remove(jobInfo.getId());
+            jobInfo.setIncrementSyncType(null);
+            jobInfo.setIncrementSyncTime(null);
+            log.info("jobId:{}, removeTask", jobInfo.getId());
         } catch (Exception e) {
-            logger.error("removeTask error:", e);
+            log.error("removeTask error:", e);
+        }
+    }
+
+    /**
+     * 是下一个循环
+     * @param jobId
+     * @param operationType
+     * @param syncType
+     * @param executeTime
+     * @param content
+     * @param condition
+     * @param idValue
+     * @return
+     */
+    public static ConvertInfo isContinue(int jobId, String operationType, ProjectConstant.INCREMENT_SYNC_TYPE syncType, long executeTime, Object content, Object condition, String idValue) {
+        ConvertInfo convertInfo = IncrementUtil.getConvertInfo(jobId);
+        if (convertInfo == null) {
+            log.error("jobId:{}, 不存在读写装换关系", jobId);
+            return null;
+        }
+        if (executeTime < convertInfo.getInitTimestamp()) {
+            return null;
+        }
+        if (IncrementUtil.isRunningJob(jobId)) {
+            saveWaiting(jobId, operationType, syncType, content, condition, idValue);
+            return null;
+        }
+        return convertInfo;
+    }
+
+    /**
+     * 保存等待任务
+     * @param jobId
+     * @param operationType
+     * @param syncType
+     * @param content
+     * @param condition
+     * @param idValue
+     */
+    public static void saveWaiting(int jobId, String operationType, ProjectConstant.INCREMENT_SYNC_TYPE syncType, Object content, Object condition, String idValue) {
+        if (OperationType.INSERT.name().equals(operationType)) {
+            //插入语句清除更新语句、之前的插入语句
+            JobAdminConfig.getAdminConfig().getIncrementSyncWaitingMapper().deleteByOperation(jobId, idValue, OperationType.UPDATE.name());
+            JobAdminConfig.getAdminConfig().getIncrementSyncWaitingMapper().deleteByOperation(jobId, idValue, OperationType.INSERT.name());
+            //保存插入语句
+            IncrementSyncWaiting incrementSyncWaiting = IncrementSyncWaiting.builder()
+                    .jobId(jobId).type(syncType.val())
+                    .operationType(OperationType.INSERT.name())
+                    .content(JSON.toJSONString(content, SerializerFeature.WriteDateUseDateFormat))
+                    .idValue(idValue).build();
+            JobAdminConfig.getAdminConfig().getIncrementSyncWaitingMapper().save(incrementSyncWaiting);
+        } else if (OperationType.UPDATE.name().equals(operationType)) {
+            //更新语句保留一条就够了
+            IncrementSyncWaiting incrementSyncWaiting = JobAdminConfig.getAdminConfig().getIncrementSyncWaitingMapper().loadUpdate(jobId);
+            if(incrementSyncWaiting != null) {
+                //更新更新字段
+                String updateContent = incrementSyncWaiting.getContent();
+                if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH==syncType) {
+                    JSONObject jsonObject = JSON.parseObject(updateContent);
+                    Map<String, Object> mongoData = (Map<String, Object>) content;
+                    mongoData.putAll(jsonObject);
+                    updateContent = JSON.toJSONString(mongoData, SerializerFeature.WriteDateUseDateFormat);
+                } else if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL==syncType) {
+                    Map<String, ColumnValue> updateMap = JSON.parseObject(updateContent, new TypeReference<Map<String, ColumnValue>>(){});
+                    Map<String, ColumnValue> mysqlData = (Map<String, ColumnValue>) content;
+                    updateMap.putAll(mysqlData);
+                    updateContent = JSON.toJSONString(updateMap, SerializerFeature.WriteDateUseDateFormat);
+                }
+                JobAdminConfig.getAdminConfig().getIncrementSyncWaitingMapper().updateContent(incrementSyncWaiting.getId(), updateContent);
+            } else {
+                //保存更新语句
+                IncrementSyncWaiting.IncrementSyncWaitingBuilder builder =  IncrementSyncWaiting.builder();
+                builder.jobId(jobId).type(syncType.val())
+                        .operationType(OperationType.UPDATE.name())
+                        .content(JSON.toJSONString(condition, SerializerFeature.WriteDateUseDateFormat))
+                        .idValue(idValue);
+                if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH==syncType) {
+                    builder.condition((String) condition);
+                } else if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL==syncType) {
+                    builder.condition(JSON.toJSONString(condition));
+                }
+                incrementSyncWaiting = builder.build();
+                JobAdminConfig.getAdminConfig().getIncrementSyncWaitingMapper().save(incrementSyncWaiting);
+            }
+        } else if (OperationType.DELETE.name().equals(operationType)) {
+            //删除语句清除所有
+            JobAdminConfig.getAdminConfig().getIncrementSyncWaitingMapper().deleteByJobIdAndIdValue(jobId, idValue);
+            //保存删除语句
+            IncrementSyncWaiting.IncrementSyncWaitingBuilder builder =  IncrementSyncWaiting.builder();
+            builder.jobId(jobId).type(syncType.val())
+                    .operationType(OperationType.DELETE.name())
+                    .idValue(idValue);
+            if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH==syncType) {
+                builder.condition((String) condition);
+            } else if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL==syncType) {
+                builder.condition(JSON.toJSONString(condition));
+            }
+            IncrementSyncWaiting incrementSyncWaiting = builder.build();
+            JobAdminConfig.getAdminConfig().getIncrementSyncWaitingMapper().save(incrementSyncWaiting);
         }
     }
 }

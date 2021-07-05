@@ -1,9 +1,12 @@
 package com.wugui.datax.admin.service.impl;
 
+import com.wenwo.cloud.message.driven.producer.service.MessageProducerService;
 import com.wugui.datatx.core.biz.model.ReturnT;
 import com.wugui.datatx.core.enums.ExecutorBlockStrategyEnum;
 import com.wugui.datatx.core.glue.GlueTypeEnum;
 import com.wugui.datatx.core.util.DateUtil;
+import com.wugui.datax.admin.constants.ProjectConstant;
+import com.wugui.datax.admin.core.conf.JobAdminConfig;
 import com.wugui.datax.admin.core.cron.CronExpression;
 import com.wugui.datax.admin.core.route.ExecutorRouteStrategyEnum;
 import com.wugui.datax.admin.core.thread.JobScheduleHelper;
@@ -232,6 +235,13 @@ public class JobServiceImpl implements JobService {
             return new ReturnT<>(ReturnT.FAIL_CODE, (I18nUtil.getString("jobinfo_field_id") + I18nUtil.getString("system_not_found")));
         }
         IncrementUtil.removeTask(exists_jobInfo);
+        //同步到其他端点
+        MessageProducerService messageProducerService = JobAdminConfig.getAdminConfig().getMessageProducerService();
+        messageProducerService.sendMsg(exists_jobInfo, ProjectConstant.ENDPOINT_SYNC_ROUTING_KEY, message->{
+            message.getMessageProperties().getHeaders().put(ProjectConstant.SOURCE_IP, JobAdminConfig.getAdminConfig().getIp());
+            message.getMessageProperties().getHeaders().put(ProjectConstant.TYPE, ProjectConstant.ACTION_TYPE.REMOVE.val());
+            return message;
+        });
         // next trigger time (5s后生效，避开预读周期)
         long nextTriggerTime = exists_jobInfo.getTriggerNextTime();
         if (exists_jobInfo.getTriggerStatus() == 1 && !jobInfo.getJobCron().equals(exists_jobInfo.getJobCron())) {
@@ -264,7 +274,14 @@ public class JobServiceImpl implements JobService {
         exists_jobInfo.setGlueUpdatetime(new Date());
         jobInfoMapper.update(exists_jobInfo);
 
-
+        //更新增量同步配置
+        IncrementUtil.initIncrementData(exists_jobInfo, true);
+        //同步到其他端点
+        messageProducerService.sendMsg(exists_jobInfo, ProjectConstant.ENDPOINT_SYNC_ROUTING_KEY, message->{
+            message.getMessageProperties().getHeaders().put(ProjectConstant.SOURCE_IP, JobAdminConfig.getAdminConfig().getIp());
+            message.getMessageProperties().getHeaders().put(ProjectConstant.TYPE, ProjectConstant.ACTION_TYPE.TRIGGER.val());
+            return message;
+        });
         return ReturnT.SUCCESS;
     }
 

@@ -36,7 +36,7 @@ import java.util.Date;
  * Created by xuxueli on 17/7/13.
  */
 public class JobTrigger {
-    private static Logger logger = LoggerFactory.getLogger(JobTrigger.class);
+    private static final Logger logger = LoggerFactory.getLogger(JobTrigger.class);
 
     /**
      * trigger job
@@ -63,6 +63,7 @@ public class JobTrigger {
         MessageProducerService messageProducerService = JobAdminConfig.getAdminConfig().getMessageProducerService();
         messageProducerService.sendMsg(jobInfo, ProjectConstant.ENDPOINT_SYNC_ROUTING_KEY, message->{
             message.getMessageProperties().getHeaders().put(ProjectConstant.SOURCE_IP, JobAdminConfig.getAdminConfig().getIp());
+            message.getMessageProperties().getHeaders().put(ProjectConstant.TYPE, ProjectConstant.ACTION_TYPE.TRIGGER.val());
             return message;
         });
 

@@ -1,5 +1,9 @@
 package com.wugui.datax.admin.util;
 
+import com.ctrip.framework.apollo.model.ConfigChangeEvent;
+import com.ctrip.framework.apollo.spring.annotation.ApolloConfigChangeListener;
+import com.wugui.datax.admin.canal.WenwoCanalClient;
+import org.springframework.cloud.context.environment.EnvironmentChangeEvent;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
 import org.springframework.context.annotation.Lazy;
@@ -65,4 +69,10 @@ public class SpringContextHolder implements ApplicationContextAware {
 			throw new RuntimeException("applicaitonContext属性为null,请检查是否注入了SpringContextHolder!");
 		}
 	}
+
+	/*@ApolloConfigChangeListener(value="canal.yml",interestedKeyPrefixes = {"canal."})
+	private void refresh(ConfigChangeEvent changeEvent){
+		applicationContext.publishEvent(new EnvironmentChangeEvent(changeEvent.changedKeys()));
+		SpringContextHolder.getBean(WenwoCanalClient.class).initOrUpdate(false);
+	}*/
 }

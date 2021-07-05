@@ -28,6 +28,8 @@ public interface IncrementSyncWaitingMapper {
 
     List<IncrementSyncWaiting> loadByJobId(@Param("jobId") int jobId);
 
+    int deleteByJobId(@Param("jobId") int jobId);
+
     int deleteByJobIdAndIdValue(@Param("jobId") int jobId, @Param("idValue") String idValue);
 
     IncrementSyncWaiting loadUpdate(@Param("jobId") int jobId);

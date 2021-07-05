@@ -1,5 +1,6 @@
 package com.wugui.datax.admin.mq;
 
+import com.wugui.datax.admin.constants.ProjectConstant;
 import com.wugui.datax.admin.core.conf.JobAdminConfig;
 import com.wugui.datax.admin.core.util.IncrementUtil;
 import com.wugui.datax.admin.entity.JobInfo;
@@ -25,9 +26,13 @@ public class EndpointSyncListener {
      * @param sourceIp
      */
     @RabbitHandler
-    public void process(@Payload JobInfo jobInfo, @Header String sourceIp) {
+    public void process(@Payload JobInfo jobInfo, @Header String sourceIp, @Header String type) {
         if (!JobAdminConfig.getAdminConfig().getIp().equals(sourceIp)) {
-            IncrementUtil.initIncrementData(jobInfo, true);
+            if (ProjectConstant.ACTION_TYPE.REMOVE.val().equals(type)) {
+                IncrementUtil.removeTask(jobInfo);
+            } else if (ProjectConstant.ACTION_TYPE.TRIGGER.val().equals(type)) {
+                IncrementUtil.initIncrementData(jobInfo, true);
+            }
         }
     }
 

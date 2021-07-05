@@ -106,7 +106,7 @@ if [[ ! ${APOLLO_META} ]]; then
 fi
 
 if [[ ! ${ACTIVE} ]]; then
-    ACTIVE="prd"
+    ACTIVE="dev"
 fi
 
 function getMyIp() {

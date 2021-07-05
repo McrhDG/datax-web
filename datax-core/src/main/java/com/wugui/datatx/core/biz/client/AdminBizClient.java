@@ -33,6 +33,11 @@ public class AdminBizClient implements AdminBiz {
 
 
     @Override
+    public void executeIncrementSyncWaitings() {
+
+    }
+
+    @Override
     public ReturnT<String> callback(List<HandleCallbackParam> callbackParamList) {
         return JobRemotingUtil.postBody(addressUrl+"api/callback", accessToken, callbackParamList, 3);
     }

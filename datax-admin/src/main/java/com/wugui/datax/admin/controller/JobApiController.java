@@ -26,6 +26,16 @@ public class JobApiController {
     @Resource
     private AdminBiz adminBiz;
 
+
+    /**
+     * 执行增量等待方法
+     */
+    @RequestMapping("/incrementWait")
+    public ReturnT<String> executeIncrementSyncWaitings() {
+        adminBiz.executeIncrementSyncWaitings();
+        return ReturnT.SUCCESS;
+    }
+
     /**
      * callback
      *
