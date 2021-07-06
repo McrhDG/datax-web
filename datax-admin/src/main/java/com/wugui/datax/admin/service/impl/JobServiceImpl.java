@@ -1,5 +1,7 @@
 package com.wugui.datax.admin.service.impl;
 
+import com.alibaba.fastjson.JSONArray;
+import com.alibaba.fastjson.JSONObject;
 import com.wenwo.cloud.message.driven.producer.service.MessageProducerService;
 import com.wugui.datatx.core.biz.model.ReturnT;
 import com.wugui.datatx.core.enums.ExecutorBlockStrategyEnum;
@@ -23,7 +25,9 @@ import com.wugui.datax.admin.service.DatasourceQueryService;
 import com.wugui.datax.admin.service.DataxJsonService;
 import com.wugui.datax.admin.service.JobService;
 import com.wugui.datax.admin.util.DateFormatUtils;
+import jdk.nashorn.internal.ir.annotations.Ignore;
 import org.apache.commons.lang3.StringUtils;
+import org.datanucleus.enhancer.methods.InitPersistableSuperclass;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeanUtils;
@@ -234,14 +238,18 @@ public class JobServiceImpl implements JobService {
         if (exists_jobInfo == null) {
             return new ReturnT<>(ReturnT.FAIL_CODE, (I18nUtil.getString("jobinfo_field_id") + I18nUtil.getString("system_not_found")));
         }
-        IncrementUtil.removeTask(exists_jobInfo);
-        //同步到其他端点
-        MessageProducerService messageProducerService = JobAdminConfig.getAdminConfig().getMessageProducerService();
-        messageProducerService.sendMsg(exists_jobInfo, ProjectConstant.ENDPOINT_SYNC_ROUTING_KEY, message->{
-            message.getMessageProperties().getHeaders().put(ProjectConstant.SOURCE_IP, JobAdminConfig.getAdminConfig().getIp());
-            message.getMessageProperties().getHeaders().put(ProjectConstant.TYPE, ProjectConstant.ACTION_TYPE.REMOVE.val());
-            return message;
-        });
+        boolean isDiffContent = isDiffContent(exists_jobInfo, jobInfo);
+        MessageProducerService messageProducerService = null;
+        if (isDiffContent) {
+            IncrementUtil.removeTask(exists_jobInfo);
+            //同步到其他端点
+            messageProducerService = JobAdminConfig.getAdminConfig().getMessageProducerService();
+            messageProducerService.sendMsg(exists_jobInfo, ProjectConstant.ENDPOINT_SYNC_ROUTING_KEY, message -> {
+                message.getMessageProperties().getHeaders().put(ProjectConstant.SOURCE_IP, JobAdminConfig.getAdminConfig().getIp());
+                message.getMessageProperties().getHeaders().put(ProjectConstant.TYPE, ProjectConstant.ACTION_TYPE.REMOVE.val());
+                return message;
+            });
+        }
         // next trigger time (5s后生效，避开预读周期)
         long nextTriggerTime = exists_jobInfo.getTriggerNextTime();
         if (exists_jobInfo.getTriggerStatus() == 1 && !jobInfo.getJobCron().equals(exists_jobInfo.getJobCron())) {
@@ -274,15 +282,51 @@ public class JobServiceImpl implements JobService {
         exists_jobInfo.setGlueUpdatetime(new Date());
         jobInfoMapper.update(exists_jobInfo);
 
-        //更新增量同步配置
-        IncrementUtil.initIncrementData(exists_jobInfo, true);
-        //同步到其他端点
-        messageProducerService.sendMsg(exists_jobInfo, ProjectConstant.ENDPOINT_SYNC_ROUTING_KEY, message->{
-            message.getMessageProperties().getHeaders().put(ProjectConstant.SOURCE_IP, JobAdminConfig.getAdminConfig().getIp());
-            message.getMessageProperties().getHeaders().put(ProjectConstant.TYPE, ProjectConstant.ACTION_TYPE.TRIGGER.val());
-            return message;
-        });
+        if (isDiffContent) {
+            //更新增量同步配置
+            IncrementUtil.initIncrementData(exists_jobInfo, true);
+            //同步到其他端点
+            messageProducerService.sendMsg(exists_jobInfo, ProjectConstant.ENDPOINT_SYNC_ROUTING_KEY, message -> {
+                message.getMessageProperties().getHeaders().put(ProjectConstant.SOURCE_IP, JobAdminConfig.getAdminConfig().getIp());
+                message.getMessageProperties().getHeaders().put(ProjectConstant.TYPE, ProjectConstant.ACTION_TYPE.TRIGGER.val());
+                return message;
+            });
+        }
         return ReturnT.SUCCESS;
+    }
+
+    /**
+     * 是否不同内容
+     * @param existsJobInfo
+     * @param jobInfo
+     * @return
+     */
+    private boolean isDiffContent(JobInfo existsJobInfo, JobInfo jobInfo) {
+        String existsContent = getContent(existsJobInfo);
+        String content = getContent(jobInfo);
+        if (StringUtils.isAllBlank(existsContent, content)) {
+            return false;
+        } else if (StringUtils.isNotBlank(existsContent)) {
+            return !existsContent.equals(content);
+        }
+        return true;
+    }
+
+    /**
+     * 获取content
+     * @param jobInfo
+     * @return
+     */
+    private String getContent(JobInfo jobInfo) {
+        String encryptJobJson = jobInfo.getJobJson();
+        try {
+            JSONObject jsonObj = JSONObject.parseObject(encryptJobJson);
+            JSONObject jobJson = jsonObj.getJSONObject("job");
+            return jobJson.getString("content");
+        } catch (Exception e) {
+            logger.error("getContent, error:", e);
+        }
+        return null;
     }
 
     @Override

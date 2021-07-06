@@ -2,7 +2,6 @@ package com.wugui.datax.admin.canal;
 
 import com.alibaba.otter.canal.client.CanalConnector;
 import com.alibaba.otter.canal.client.CanalConnectors;
-import com.alibaba.otter.canal.client.impl.ClusterCanalConnector;
 import com.wugui.datax.admin.util.SpringContextHolder;
 import org.apache.commons.lang.StringUtils;
 
@@ -33,8 +32,6 @@ public class InstanceFactory {
         CanalConnector connector = null;
         if (StringUtils.isNotBlank(instanceInfo.getZkServers())) {
             connector = CanalConnectors.newClusterConnector(instanceInfo.getZkServers(), instanceInfo.getDestination(), instanceInfo.getCanalUsername(), instanceInfo.getCanalPassword());
-            ClusterCanalConnector canalConnector = (ClusterCanalConnector) connector;
-            canalConnector.setRetryTimes(1);
         } else if (StringUtils.isNotBlank(instanceInfo.getCanalServerAddress())) {
             connector = CanalConnectors.newSingleConnector(new InetSocketAddress(instanceInfo.getCanalServerAddress(), instanceInfo.getCanalServerPort()),
                     instanceInfo.getDestination(), instanceInfo.getCanalUsername(), instanceInfo.getCanalPassword());

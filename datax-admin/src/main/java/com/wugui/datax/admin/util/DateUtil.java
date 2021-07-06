@@ -1,7 +1,9 @@
 package com.wugui.datax.admin.util;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 
 /**
  * 日志工具类
@@ -15,16 +17,14 @@ public class DateUtil {
     private DateUtil() {
     }
 
-    public static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
-
-    private static final SimpleDateFormat DEFAULT_FORMAT = new SimpleDateFormat(DATE_FORMAT);
+    private final static DateTimeFormatter DF = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     public static String format() {
-        return DEFAULT_FORMAT.format(new Date());
+        return LocalDateTime.now().format(DF);
     }
 
 
     public static String format(long time) {
-        return DEFAULT_FORMAT.format(new Date(time));
+        return Instant.ofEpochMilli(time).atZone(ZoneOffset.ofHours(8)).toLocalDateTime().format(DF);
     }
 }

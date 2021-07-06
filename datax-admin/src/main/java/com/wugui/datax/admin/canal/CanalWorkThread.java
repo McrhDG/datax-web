@@ -230,7 +230,7 @@ public class CanalWorkThread extends Thread {
                 String tableUnion = String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, address, dataBase, tableName);
                 Set<Integer> jobIds  = IncrementUtil.getTableJobsMap().get(tableUnion);
                 if (CollectionUtils.isEmpty(jobIds)) {
-                    log.error("dataBase:{}, tableName:{}, jobIds is empty", dataBase, tableName);
+                    log.warn("dataBase:{}, tableName:{}, jobIds is empty", dataBase, tableName);
                     continue;
                 }
                 // mysql

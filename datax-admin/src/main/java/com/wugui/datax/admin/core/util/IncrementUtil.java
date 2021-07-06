@@ -68,6 +68,9 @@ public class IncrementUtil {
     public static void initIncrementData(JobInfo jobInfo, boolean isInit) {
         try {
             JSONObject content = IncrementUtil.getContent(jobInfo);
+            if (content==null) {
+                return;
+            }
             // reader
             JSONObject reader = content.getJSONObject("reader");
             String name = reader.getString("name");
@@ -92,6 +95,9 @@ public class IncrementUtil {
         }
 
         JSONObject content = IncrementUtil.getContent(jobInfo);
+        if (content==null) {
+            return;
+        }
         JSONObject reader = content.getJSONObject("reader");
         String name = reader.getString("name");
         if (!ProjectConstant.MYSQL_READER.equalsIgnoreCase(name)) {
@@ -153,11 +159,16 @@ public class IncrementUtil {
      * @return
      */
     public static JSONObject getContent(JobInfo jobInfo) {
-        String encryptJobJson = jobInfo.getJobJson();
-        JSONObject jsonObj = JSONObject.parseObject(encryptJobJson);
-        JSONObject jobJson = jsonObj.getJSONObject("job");
-        JSONArray contents = jobJson.getJSONArray("content");
-        return contents.getJSONObject(0);
+        try {
+            String encryptJobJson = jobInfo.getJobJson();
+            JSONObject jsonObj = JSONObject.parseObject(encryptJobJson);
+            JSONObject jobJson = jsonObj.getJSONObject("job");
+            JSONArray contents = jobJson.getJSONArray("content");
+            return contents.getJSONObject(0);
+        } catch (Exception e) {
+            log.error("getContent, error:", e);
+        }
+        return null;
     }
 
 
@@ -171,6 +182,9 @@ public class IncrementUtil {
         }
 
         JSONObject content = IncrementUtil.getContent(jobInfo);
+        if (content==null) {
+            return;
+        }
         JSONObject reader = content.getJSONObject("reader");
         String readerName = reader.getString("name");
         if (!ProjectConstant.MONGODB_READER.equalsIgnoreCase(readerName)) {
@@ -191,14 +205,8 @@ public class IncrementUtil {
             log.info("jobId:{}, 字段无法对应，无法继续处理增量数据", jobInfo.getId());
             return;
         }
-
-        String readerDataBase = readerParam.getString("dbName");
-        String collection = readerParam.getString("collectionName");
-
         //表-任务
-        Set<String> addressSet = readerParam.getObject("address", new TypeReference<Set<String>>(){});
-        String address = StringUtils.join(addressSet, ',');
-        String tableUnion = String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, address, readerDataBase, collection);
+        String tableUnion = getMongoUnion(readerParam);
         IncrementUtil.putCollectionJob(tableUnion, jobInfo.getId());
 
 
@@ -222,6 +230,26 @@ public class IncrementUtil {
         log.info("jobId:{}, initMongoWatch, init:{}", jobInfo.getId(), isInit);
     }
 
+    /**
+     * 获取mongo唯一标识
+     * @param readerParam
+     * @return
+     */
+    private static String getMongoUnion(JSONObject readerParam) {
+        String readerDataBase = readerParam.getString("dbName");
+        String collection = readerParam.getString("collectionName");
+        Set<String> addressSet = readerParam.getObject("address", new TypeReference<Set<String>>(){});
+        String address = StringUtils.join(addressSet, ',');
+        return String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, address, readerDataBase, collection);
+    }
+
+    /**
+     * 装换关系設置
+     * @param jobInfo
+     * @param writerParam
+     * @param initTimestamp
+     * @param convertTableColumn
+     */
     private static void putConvertInfo(JobInfo jobInfo, JSONObject writerParam, long initTimestamp, Map<String, String> convertTableColumn) {
         JSONArray writerConnections = writerParam.getJSONArray("connection");
         JSONObject writerConnectionJsonObj = writerConnections.getJSONObject(0);
@@ -363,17 +391,14 @@ public class IncrementUtil {
     public static void removeTask(JobInfo jobInfo) {
         try{
             JSONObject content = IncrementUtil.getContent(jobInfo);
-
+            if (content==null) {
+                return;
+            }
             JSONObject reader = content.getJSONObject("reader");
             String readerName = reader.getString("name");
             if (ProjectConstant.MONGODB_READER.equalsIgnoreCase(readerName)) {
                 JSONObject readerParam = reader.getJSONObject("parameter");
-                String readerDataBase = readerParam.getString("dbName");
-                String collection = readerParam.getString("collectionName");
-
-                Set<String> addressSet = readerParam.getObject("address", new TypeReference<Set<String>>(){});
-                String address = StringUtils.join(addressSet, ',');
-                String tableUnion = String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, address, readerDataBase, collection);
+                String tableUnion = getMongoUnion(readerParam);
                 if (COLLECTION_JOBS_MAP.containsKey(tableUnion)) {
                     Set<Integer> jobIds = COLLECTION_JOBS_MAP.get(tableUnion);
                     if (!jobIds.isEmpty()) {
