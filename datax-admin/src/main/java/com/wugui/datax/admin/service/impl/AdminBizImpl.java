@@ -178,7 +178,7 @@ public class AdminBizImpl implements AdminBiz {
                         }
                         incrementSyncWaitingMapper.deleteByOperation(jobId, idValue, operationType);
                     } catch (Exception e) {
-                        logger.error("jobId:[},isValue:{}, execute error:{}",jobId, idValue, e.getMessage());
+                        logger.error("jobId:{},idValue:{}, execute error:{}",jobId, idValue, e.getMessage());
                     }
                 }
             } finally {

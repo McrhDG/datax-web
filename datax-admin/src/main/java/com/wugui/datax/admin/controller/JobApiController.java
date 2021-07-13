@@ -54,6 +54,7 @@ public class JobApiController {
         // param
         List<HandleCallbackParam> callbackParamList = null;
         try {
+            data = data.replace(new String(Character.toChars(26)),"");
             callbackParamList = JacksonUtil.readValue(data, List.class, HandleCallbackParam.class);
         } catch (Exception e) { }
         if (callbackParamList==null || callbackParamList.size()==0) {

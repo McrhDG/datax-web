@@ -1,5 +1,6 @@
 package com.wugui.datax.admin.util;
 
+import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.TypeReference;
 import com.google.common.collect.Maps;
@@ -12,7 +13,9 @@ import com.wugui.datax.admin.entity.JobInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.bson.BsonDocument;
+import org.bson.Document;
 
+import java.util.Collection;
 import java.util.Date;
 import java.util.Map;
 import java.util.Set;
@@ -68,7 +71,13 @@ public class MongoUtil {
             if (MONGO_ID.equals(key)) {
                 map.put(MONGO_ID, getDocumentKeyId(documentKey));
             } else {
-                map.put(key, value);
+                if (value instanceof Collection) {
+                    map.put(key, JSON.toJSONString(value));
+                }else if (value instanceof Document) {
+                    map.put(key, JSON.toJSONString(value));
+                } else {
+                    map.put(key, value);
+                }
             }
         });
         return map;
