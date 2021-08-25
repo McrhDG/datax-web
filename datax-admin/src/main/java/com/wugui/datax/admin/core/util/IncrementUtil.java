@@ -511,7 +511,7 @@ public class IncrementUtil {
                 IncrementSyncWaiting.IncrementSyncWaitingBuilder builder =  IncrementSyncWaiting.builder();
                 builder.jobId(jobId).type(syncType.val())
                         .operationType(OperationType.UPDATE.name())
-                        .content(JSON.toJSONString(condition, SerializerFeature.WriteDateUseDateFormat))
+                        .content(JSON.toJSONString(content, SerializerFeature.WriteDateUseDateFormat))
                         .idValue(idValue);
                 if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH==syncType) {
                     builder.condition((String) condition);

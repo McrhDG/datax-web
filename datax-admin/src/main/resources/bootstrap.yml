@@ -89,7 +89,7 @@ eureka:
     lease-expiration-duration-in-seconds: 20
   client:
     serviceUrl:
-      defaultZone: http://10.200.0.3:7001/eureka
+      defaultZone: http://eureka-dev.wenwo.cn/eureka
     registry-fetch-interval-seconds: 10
 ---
 spring:
@@ -101,7 +101,7 @@ eureka:
     lease-expiration-duration-in-seconds: 20
   client:
     serviceUrl:
-      defaultZone: http://10.200.0.2:7001/eureka
+      defaultZone: http://eureka-rebuild-dev.wenwo.cn/eureka
     registry-fetch-interval-seconds: 10
 ---
 spring:
@@ -113,7 +113,7 @@ eureka:
     lease-expiration-duration-in-seconds: 20
   client:
     serviceUrl:
-      defaultZone: http://10.200.0.4:7001/eureka
+      defaultZone: http://eureka-test.wenwo.cn/eureka
     registry-fetch-interval-seconds: 10
 ---
 spring:
@@ -125,7 +125,7 @@ eureka:
     lease-expiration-duration-in-seconds: 20
   client:
     serviceUrl:
-      defaultZone: http://10.200.0.1:7001/eureka
+      defaultZone: http://eureka-rebuild-test.wenwo.cn/eureka
     registry-fetch-interval-seconds: 10
 ---
 spring:
@@ -137,7 +137,7 @@ eureka:
     lease-expiration-duration-in-seconds: 20
   client:
     serviceUrl:
-      defaultZone: http://10.200.0.108:7001/eureka
+      defaultZone: http://eureka-uat.wenwo.cn/eureka
     registry-fetch-interval-seconds: 10
 ---
 spring:
@@ -149,5 +149,5 @@ eureka:
     lease-expiration-duration-in-seconds: 20
   client:
     serviceUrl:
-      defaultZone: http://mse-916b4902-eureka.mse.aliyuncs.com:8761/eureka
+      defaultZone: http://eureka-prd.wenwo.cn/eureka
     registry-fetch-interval-seconds: 10

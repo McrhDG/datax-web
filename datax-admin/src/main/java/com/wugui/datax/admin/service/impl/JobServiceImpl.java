@@ -1,6 +1,5 @@
 package com.wugui.datax.admin.service.impl;
 
-import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.wenwo.cloud.message.driven.producer.service.MessageProducerService;
 import com.wugui.datatx.core.biz.model.ReturnT;
@@ -25,9 +24,7 @@ import com.wugui.datax.admin.service.DatasourceQueryService;
 import com.wugui.datax.admin.service.DataxJsonService;
 import com.wugui.datax.admin.service.JobService;
 import com.wugui.datax.admin.util.DateFormatUtils;
-import jdk.nashorn.internal.ir.annotations.Ignore;
 import org.apache.commons.lang3.StringUtils;
-import org.datanucleus.enhancer.methods.InitPersistableSuperclass;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeanUtils;
@@ -46,7 +43,7 @@ import java.util.*;
  */
 @Service
 public class JobServiceImpl implements JobService {
-    private static Logger logger = LoggerFactory.getLogger(JobServiceImpl.class);
+    private static final Logger logger = LoggerFactory.getLogger(JobServiceImpl.class);
 
     @Resource
     private JobGroupMapper jobGroupMapper;
@@ -302,6 +299,9 @@ public class JobServiceImpl implements JobService {
      * @return
      */
     private boolean isDiffContent(JobInfo existsJobInfo, JobInfo jobInfo) {
+        if(StringUtils.isBlank(existsJobInfo.getIncrementSyncType())) {
+            return false;
+        }
         String existsContent = getContent(existsJobInfo);
         String content = getContent(jobInfo);
         if (StringUtils.isAllBlank(existsContent, content)) {
