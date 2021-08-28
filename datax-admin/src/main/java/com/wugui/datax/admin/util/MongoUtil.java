@@ -1,6 +1,5 @@
 package com.wugui.datax.admin.util;
 
-import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.TypeReference;
 import com.google.common.collect.Maps;
@@ -9,16 +8,19 @@ import com.mongodb.client.MongoClients;
 import com.wugui.datax.admin.constants.ProjectConstant;
 import com.wugui.datax.admin.core.conf.JobAdminConfig;
 import com.wugui.datax.admin.core.util.IncrementUtil;
+import com.wugui.datax.admin.entity.ConvertInfo;
 import com.wugui.datax.admin.entity.JobInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.bson.BsonArray;
 import org.bson.BsonDocument;
-import org.bson.Document;
+import org.bson.BsonValue;
+import org.springframework.util.ClassUtils;
+import org.springframework.util.CollectionUtils;
 
-import java.util.Collection;
-import java.util.Date;
-import java.util.Map;
-import java.util.Set;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -53,12 +55,11 @@ public class MongoUtil {
      * @param relation
      * @return
      */
-    public static String getUnionKey(Map<String, String> relation) {
-        String unionKey = relation.get(MONGO_ID);
-        if (StringUtils.isBlank(unionKey)) {
-            unionKey = "id";
+    public static String getUnionKey(Map<String, ConvertInfo.ToColumn> relation) {
+        if (relation.get(MONGO_ID)==null || StringUtils.isBlank(relation.get(MONGO_ID).getName())) {
+            return  "id";
         }
-        return unionKey;
+        return relation.get(MONGO_ID).getName();
     }
 
     /**
@@ -71,13 +72,7 @@ public class MongoUtil {
             if (MONGO_ID.equals(key)) {
                 map.put(MONGO_ID, getDocumentKeyId(documentKey));
             } else {
-                if (value instanceof Collection) {
-                    map.put(key, JSON.toJSONString(value));
-                }else if (value instanceof Document) {
-                    map.put(key, JSON.toJSONString(value));
-                } else {
-                    map.put(key, value);
-                }
+                map.put(key, value);
             }
         });
         return map;
@@ -91,35 +86,63 @@ public class MongoUtil {
     public static Map<String, Object> toParseMap(BsonDocument bsonDocument) {
         Map<String, Object> map = Maps.newHashMapWithExpectedSize(bsonDocument.size());
 
-        bsonDocument.forEach((key, value) -> {
-            Object convertValue;
-            if (bsonDocument.isObjectId(key)) {
-                convertValue =  bsonDocument.getObjectId(key).getValue().toString();
-            } else if (bsonDocument.isString(key)) {
-                convertValue =  bsonDocument.getString(key).getValue();
-            } else if (bsonDocument.isInt64(key)) {
-                convertValue = bsonDocument.getInt64(key).getValue();
-            } else if (bsonDocument.isNull(key)) {
-                convertValue = null;
-            } else if (bsonDocument.isInt32(key)) {
-                convertValue = bsonDocument.getInt32(key).getValue();
-            } else if (bsonDocument.isDecimal128(key)) {
-                convertValue = bsonDocument.getDecimal128(key).getValue();
-            } else if (bsonDocument.isDouble(key)) {
-                convertValue = bsonDocument.getDouble(key).getValue();
-            } else if (bsonDocument.isBoolean(key)) {
-                convertValue = bsonDocument.getBoolean(key).getValue();
-            } else if (bsonDocument.isDateTime(key)) {
-                convertValue = new Date(bsonDocument.getDateTime(key).getValue());
-            } else if (bsonDocument.isTimestamp(key)) {
-                convertValue = new Date(bsonDocument.getTimestamp(key).getValue());
-            } else {
-                convertValue = bsonDocument.getString(key).getValue();
-            }
-            map.put(key, convertValue);
-        });
+        bsonDocument.forEach((key, value) -> map.put(key, toParse(value)));
         return map;
 
+    }
+
+
+    /**
+     * 装换
+     * @param bsonValue
+     * @return
+     */
+    public static Object toParse(BsonValue bsonValue) {
+        Object value = null;
+        if (bsonValue.isObjectId()) {
+            value =  bsonValue.asObjectId().getValue().toString();
+        } else if (bsonValue.isString()) {
+            value =  bsonValue.asString().getValue();
+        } else if (bsonValue.isInt64()) {
+            value = bsonValue.asInt64().getValue();
+        }  else if (bsonValue.isInt32()) {
+            value = bsonValue.asInt32().getValue();
+        } else if (bsonValue.isDecimal128()) {
+            value = bsonValue.asDecimal128().getValue().doubleValue();
+        } else if (bsonValue.isDouble()) {
+            value = bsonValue.asDouble().getValue();
+        } else if (bsonValue.isBoolean()) {
+            value = bsonValue.asBoolean().getValue();
+        } else if (bsonValue.isDateTime()) {
+            value = new Date(bsonValue.asDateTime().getValue());
+        } else if (bsonValue.isTimestamp()) {
+            value = new Date(bsonValue.asTimestamp().getValue());
+        } else if (bsonValue.isDocument()) {
+            BsonDocument document = bsonValue.asDocument();
+            if (document!=null) {
+                value = toParseMap(document);
+            }
+        } else if (bsonValue.isArray()) {
+            BsonArray array = bsonValue.asArray();
+            if (!CollectionUtils.isEmpty(array)) {
+                List<Object> list = new ArrayList<>();
+                for (BsonValue bsonValue1 : array) {
+                    list.add(toParse(bsonValue1));
+                }
+                value = list;
+            }
+        }
+        return value;
+    }
+
+
+    /**
+     * 是否基础类型
+     * @param clz
+     * @return
+     */
+    public static boolean isBaseType(Class<?> clz){
+        return ClassUtils.isPrimitiveOrWrapper(clz) || clz==String.class || clz==Date.class || clz== LocalDate.class || clz== LocalDateTime.class || clz.getPackage().getName().startsWith("java.");
     }
 
     /**

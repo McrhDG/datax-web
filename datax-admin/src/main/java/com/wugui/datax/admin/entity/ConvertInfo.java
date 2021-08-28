@@ -1,6 +1,7 @@
 package com.wugui.datax.admin.entity;
 
 import lombok.Data;
+import lombok.Getter;
 
 import java.util.Map;
 
@@ -20,7 +21,7 @@ public class ConvertInfo {
      * @param tableColumns
      * @param writeUrl
      */
-    public ConvertInfo(int jobId, String tableName, Map<String, String> tableColumns, String writeUrl, long initTimestamp) {
+    public ConvertInfo(int jobId, String tableName, Map<String, ToColumn> tableColumns, String writeUrl, long initTimestamp) {
         this.jobId = jobId;
         this.tableName = tableName;
         this.tableColumns = tableColumns;
@@ -41,7 +42,7 @@ public class ConvertInfo {
     /**
      * 列名装换
      */
-    private final Map<String, String> tableColumns;
+    private final Map<String, ToColumn> tableColumns;
 
     /**
      * 写入放连接url
@@ -67,4 +68,33 @@ public class ConvertInfo {
      * 开始同步时间
      */
     private long initTimestamp;
+
+    @Getter
+    public static class ToColumn {
+
+        public ToColumn(String name) {
+            this.name = name;
+        }
+
+        public ToColumn(String name, String fromType, String splitter) {
+            this.name = name;
+            this.fromType = fromType;
+            this.splitter = splitter;
+        }
+
+        /**
+         * 列名
+         */
+        private String name;
+
+        /**
+         * 来源列类型
+         */
+        private String fromType;
+
+        /**
+         * 分隔符
+         */
+        private String splitter;
+    }
 }

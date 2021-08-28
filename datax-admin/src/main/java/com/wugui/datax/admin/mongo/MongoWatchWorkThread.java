@@ -1,5 +1,8 @@
 package com.wugui.datax.admin.mongo;
 
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.serializer.SerializerFeature;
+import com.google.common.base.Joiner;
 import com.mongodb.MongoInterruptedException;
 import com.mongodb.client.ChangeStreamIterable;
 import com.mongodb.client.MongoClient;
@@ -281,7 +284,7 @@ public class MongoWatchWorkThread extends Thread {
             return;
         }
         // 数据源中的各个表
-        Map<String, String> relation = convertInfo.getTableColumns();
+        Map<String, ConvertInfo.ToColumn> relation = convertInfo.getTableColumns();
         Map<String, Object> mysqlData = columnConvert(mongoData, relation);
         // 每个表 执行sql
         String insertSql = doGetInsertSql(convertInfo.getTableName(), mysqlData);
@@ -317,17 +320,80 @@ public class MongoWatchWorkThread extends Thread {
      * @param relation 列转换关系
      * @return 转换后的 mysql数据
      */
-    private static Map<String, Object> columnConvert(Map<String, Object> mongoData, Map<String, String> relation) {
+    private static Map<String, Object> columnConvert(Map<String, Object> mongoData, Map<String, ConvertInfo.ToColumn> relation) {
         // 这里使用 TreeMap
         TreeMap<String, Object> mysqlData = new TreeMap<>();
-        for (Map.Entry<String, String> entry : relation.entrySet()) {
+        for (Map.Entry<String, ConvertInfo.ToColumn> entry : relation.entrySet()) {
             String fromColumn = entry.getKey();
-            String toColumn = entry.getValue();
+            ConvertInfo.ToColumn toColumn = entry.getValue();
             if (mongoData.containsKey(fromColumn)) {
-                mysqlData.put(toColumn, mongoData.get(fromColumn));
+                mysqlData.put(toColumn.getName(), convertValue(toColumn, mongoData.get(fromColumn)));
+            } else if (fromColumn.contains(".")) {
+                String[] splits = fromColumn.split("\\.");
+                Map<String, Object> map = null;
+                String key = "";
+                int index = 0;
+                for (String split : splits) {
+                    index++;
+                    key += (StringUtils.isNotBlank(key)?".":"") + split;
+                    if (mongoData.get(key) instanceof Map) {
+                        map = (Map<String, Object>) mongoData.get(key);
+                        break;
+                    }
+                }
+                Object value = null;
+                if(map!=null && index < splits.length) {
+                    for (int i = index; i < splits.length; i++) {
+                        String split = splits[i];
+                        value = map.get(split);
+                        if (value instanceof Map) {
+                            map = (Map<String, Object>) value;
+                        }
+                    }
+                }
+                if (value!=null) {
+                    mysqlData.put(toColumn.getName(), convertValue(toColumn, value));
+                }
             }
         }
         return mysqlData;
+    }
+
+    /**
+     * 数组类型
+     */
+    private static final String ARRAY_TYPE = "array";
+    /**
+     * 嵌入文档数组类型
+     */
+    private static final String DOCUMENT_ARRAY_TYPE = "document.array";
+
+    /**
+     * 值装换
+     * @param toColumn
+     * @param value
+     * @return
+     */
+    private static Object convertValue(ConvertInfo.ToColumn toColumn, Object value) {
+        String type = toColumn.getFromType();
+        try {
+           if(value instanceof Collection) {
+                if (ARRAY_TYPE.equals(type) || DOCUMENT_ARRAY_TYPE.equals(type)) {
+                    String splitter = toColumn.getSplitter();
+                    if (StringUtils.isBlank(splitter)) {
+                        splitter = ",";
+                    }
+                    return Joiner.on(splitter).join((Iterable<?>) value);
+                } else {
+                    return JSON.toJSONString(value, SerializerFeature.WriteDateUseDateFormat);
+                }
+            } else if(!MongoUtil.isBaseType(value.getClass()))  {
+                return JSON.toJSONString(value, SerializerFeature.WriteDateUseDateFormat);
+            }
+        } catch (Exception e) {
+            return value;
+        }
+        return value;
     }
 
     /**
@@ -390,7 +456,7 @@ public class MongoWatchWorkThread extends Thread {
             return;
         }
         // 数据源中的各个表
-        Map<String, String> relation = convertInfo.getTableColumns();
+        Map<String, ConvertInfo.ToColumn> relation = convertInfo.getTableColumns();
 
         Map<String, Object> mysqlData = columnConvert(updateData, relation);
         // 每个表 执行sql
@@ -444,7 +510,7 @@ public class MongoWatchWorkThread extends Thread {
             return;
         }
         // 数据源中的各个表
-        Map<String, String> relation = convertInfo.getTableColumns();
+        Map<String, ConvertInfo.ToColumn> relation = convertInfo.getTableColumns();
         // 每个表 执行sql
         String unionKey = MongoUtil.getUnionKey(relation);
         if (StringUtils.isBlank(unionKey)) {

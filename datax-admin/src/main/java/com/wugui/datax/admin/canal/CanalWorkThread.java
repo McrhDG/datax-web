@@ -342,7 +342,7 @@ public class CanalWorkThread extends Thread {
             if (column.getUpdated()) {
                 builder.append("    update=").append(column.getUpdated());
             }
-            log.info(builder.toString());
+            log.debug(builder.toString());
         }
     }
 
@@ -508,7 +508,7 @@ public class CanalWorkThread extends Thread {
             return;
         }
         // 数据源中的各个表
-        Map<String, String> relation = convertInfo.getTableColumns();
+        Map<String, ConvertInfo.ToColumn> relation = convertInfo.getTableColumns();
         Map<String, ColumnValue> mysqlData = columnConvert(data, relation);
         // 每个表 执行sql
         String insertSql = MysqlUtil.doGetInsertSql(convertInfo, mysqlData.keySet());
@@ -543,12 +543,12 @@ public class CanalWorkThread extends Thread {
      * @param relation
      * @return
      */
-    private static Map<String, ColumnValue> columnConvert(Map<String, ColumnValue> data, Map<String, String> relation) {
+    private static Map<String, ColumnValue> columnConvert(Map<String, ColumnValue> data, Map<String, ConvertInfo.ToColumn> relation) {
         // 这里使用 TreeMap
         TreeMap<String, ColumnValue> mysqlData = new TreeMap<>();
-        for (Map.Entry<String, String> entry : relation.entrySet()) {
+        for (Map.Entry<String, ConvertInfo.ToColumn> entry : relation.entrySet()) {
             String fromColumn = entry.getKey();
-            String toColumn = entry.getValue();
+            String toColumn = entry.getValue().getName();
             if (data.containsKey(fromColumn)) {
                 mysqlData.put(toColumn, data.get(fromColumn));
             }
@@ -589,7 +589,7 @@ public class CanalWorkThread extends Thread {
      */
     public static void update(ConvertInfo convertInfo, Map<String, ColumnValue> updateData, Map<String, ColumnValue> conditionData) throws SQLException {
         // 数据源中的各个表
-        Map<String, String> relation = convertInfo.getTableColumns();
+        Map<String, ConvertInfo.ToColumn> relation = convertInfo.getTableColumns();
 
         Map<String, ColumnValue> covertUpdateData = columnConvert(updateData, relation);
         Map<String, ColumnValue> covertConditionData = columnConvert(conditionData, relation);
@@ -640,7 +640,7 @@ public class CanalWorkThread extends Thread {
      */
     public static void delete(ConvertInfo convertInfo, Map<String, ColumnValue> conditionData) throws SQLException {
         // 数据源中的各个表
-        Map<String, String> relation = convertInfo.getTableColumns();
+        Map<String, ConvertInfo.ToColumn> relation = convertInfo.getTableColumns();
         Map<String, ColumnValue> covertConditionData = columnConvert(conditionData, relation);
         if (covertConditionData.isEmpty()) {
             log.info("没有主键进行删除");

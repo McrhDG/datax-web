@@ -148,7 +148,7 @@ public class IncrementUtil {
         }
 
         //装换关系
-        Map<String, String> convertTableColumn = mysqlConvertTableColumn(readerColumnArray, writerColumnArray);
+        Map<String, ConvertInfo.ToColumn> convertTableColumn = mysqlConvertTableColumn(readerColumnArray, writerColumnArray);
         putConvertInfo(jobInfo, writerParam, initTimestamp, convertTableColumn);
         log.info("jobId:{}, initCanal, init:{}", jobInfo.getId(), isInit);
     }
@@ -222,7 +222,7 @@ public class IncrementUtil {
         }
 
         //装换关系
-        Map<String, String> convertTableColumn = mongoConvertTableColumn(readerColumnArray, writerColumnArray);
+        Map<String, ConvertInfo.ToColumn> convertTableColumn = mongoConvertTableColumn(readerColumnArray, writerColumnArray);
         putConvertInfo(jobInfo, writerParam, initTimestamp, convertTableColumn);
 
         MongoWatchWork mongoWatchWork = SpringContextHolder.getBean(MongoWatchWork.class);
@@ -250,7 +250,7 @@ public class IncrementUtil {
      * @param initTimestamp
      * @param convertTableColumn
      */
-    private static void putConvertInfo(JobInfo jobInfo, JSONObject writerParam, long initTimestamp, Map<String, String> convertTableColumn) {
+    private static void putConvertInfo(JobInfo jobInfo, JSONObject writerParam, long initTimestamp, Map<String, ConvertInfo.ToColumn> convertTableColumn) {
         JSONArray writerConnections = writerParam.getJSONArray("connection");
         JSONObject writerConnectionJsonObj = writerConnections.getJSONObject(0);
         String writerJdbcUrl = writerConnectionJsonObj.getString("jdbcUrl");
@@ -328,13 +328,13 @@ public class IncrementUtil {
      * @param readerColumn
      * @param writerColumn
      */
-    public static Map<String,String>  mysqlConvertTableColumn(JSONArray readerColumn, JSONArray writerColumn) {
-        Map<String,String> map = Maps.newHashMapWithExpectedSize(readerColumn.size());
+    public static Map<String, ConvertInfo.ToColumn>  mysqlConvertTableColumn(JSONArray readerColumn, JSONArray writerColumn) {
+        Map<String, ConvertInfo.ToColumn> map = Maps.newHashMapWithExpectedSize(readerColumn.size());
         for (int i = 0; i < readerColumn.size(); i++) {
             String key = readerColumn.getString(i);
             String value = writerColumn.getString(i);
             if(StringUtils.isNotBlank(value)) {
-                map.put(key.replace("`", ""), value.replace("`", ""));
+                map.put(key.replace("`", ""), new ConvertInfo.ToColumn(value.replace("`", "")));
             }
         }
         return map;
@@ -346,14 +346,16 @@ public class IncrementUtil {
      * @param writerColumn
      * @return
      */
-    public static Map<String,String> mongoConvertTableColumn(JSONArray readerColumn, JSONArray writerColumn) {
-        Map<String,String> map = Maps.newHashMapWithExpectedSize(readerColumn.size());
+    public static Map<String, ConvertInfo.ToColumn> mongoConvertTableColumn(JSONArray readerColumn, JSONArray writerColumn) {
+        Map<String, ConvertInfo.ToColumn> map = Maps.newHashMapWithExpectedSize(readerColumn.size());
         for (int i = 0; i < readerColumn.size(); i++) {
             JSONObject jObj = readerColumn.getJSONObject(i);
             String key = jObj.getString("name");
+            String type = jObj.getString("type");
+            String splitter = jObj.getString("splitter");
             String value = writerColumn.getString(i);
             if(StringUtils.isNotBlank(value)) {
-                map.put(key, value.replace("`", ""));
+                map.put(key, new ConvertInfo.ToColumn(value.replace("`", ""), type, splitter));
             }
         }
         return map;
