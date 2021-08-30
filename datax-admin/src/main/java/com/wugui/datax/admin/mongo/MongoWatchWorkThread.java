@@ -350,8 +350,6 @@ public class MongoWatchWorkThread extends Thread {
                             map = (Map<String, Object>) value;
                         }
                     }
-                }
-                if (value!=null) {
                     mysqlData.put(toColumn.getName(), convertValue(toColumn, value));
                 }
             }
