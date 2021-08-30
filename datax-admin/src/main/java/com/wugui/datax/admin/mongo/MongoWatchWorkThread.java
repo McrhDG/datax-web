@@ -373,6 +373,9 @@ public class MongoWatchWorkThread extends Thread {
      * @return
      */
     private static Object convertValue(ConvertInfo.ToColumn toColumn, Object value) {
+        if(value==null) {
+           return null;
+        }
         String type = toColumn.getFromType();
         try {
            if(value instanceof Collection) {
