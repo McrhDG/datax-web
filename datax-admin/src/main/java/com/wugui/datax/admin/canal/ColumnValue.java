@@ -3,6 +3,9 @@ package com.wugui.datax.admin.canal;
 import com.alibaba.otter.canal.protocol.CanalEntry;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+import java.sql.Types;
 
 /**
  * 列值
@@ -13,6 +16,7 @@ import lombok.NoArgsConstructor;
  */
 @Data
 @NoArgsConstructor
+@Slf4j
 public class ColumnValue {
 
     /**
@@ -24,6 +28,17 @@ public class ColumnValue {
             this.value = column.getValue();
         }
         this.sqlType = column.getSqlType();
+        if(Types.NUMERIC == column.getSqlType() || Types.DECIMAL == column.getSqlType()) {
+            String mysqlType = column.getMysqlType();
+            if(mysqlType.contains(",")) {
+                String point = mysqlType.substring(mysqlType.indexOf(',')+1, mysqlType.indexOf(')'));
+                try {
+                    scale = Integer.parseInt(point);
+                } catch (NumberFormatException e) {
+                    log.error("point length:{}, change point length error", point);
+                }
+            }
+        }
     }
 
     /**
@@ -35,4 +50,9 @@ public class ColumnValue {
      * sql类型
      */
     private Integer sqlType;
+
+    /**
+     * 小数点长度
+     */
+    private int scale;
 }

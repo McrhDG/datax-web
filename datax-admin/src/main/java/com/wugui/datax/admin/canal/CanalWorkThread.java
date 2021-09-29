@@ -576,7 +576,12 @@ public class CanalWorkThread extends Thread {
                 preparedStatement.setNull(index, Types.OTHER);
                 continue;
             }
-            preparedStatement.setObject(index, value, columnValue.getSqlType());
+            int sqlType = columnValue.getSqlType();
+            if (Types.NUMERIC == sqlType || Types.DECIMAL == sqlType) {
+                preparedStatement.setObject(index, value, columnValue.getSqlType(), columnValue.getScale());
+            } else {
+                preparedStatement.setObject(index, value, columnValue.getSqlType());
+            }
         }
         return index;
     }
