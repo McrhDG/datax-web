@@ -228,10 +228,14 @@ public class CanalWorkThread extends Thread {
                         entry.getHeader().getGtid(), delayTime);
 
                 String tableUnion = String.format(ProjectConstant.URL_DATABASE_TABLE_FORMAT, address, dataBase, tableName);
-                Set<Integer> jobIds  = IncrementUtil.getTableJobsMap().get(tableUnion);
+                Map<String, Set<Integer>> tableJobsMap = IncrementUtil.getTableJobsMap();
+                Set<Integer> jobIds  = tableJobsMap.get(tableUnion);
                 if (CollectionUtils.isEmpty(jobIds)) {
-                    log.warn("dataBase:{}, tableName:{}, jobIds is empty", dataBase, tableName);
-                    continue;
+                    jobIds  = tableJobsMap.get(tableUnion.replace("_3306", ""));
+                    if (CollectionUtils.isEmpty(jobIds)) {
+                        log.warn("dataBase:{}, tableName:{}, jobIds is empty", dataBase, tableName);
+                        continue;
+                    }
                 }
                 // mysql
                 printXAInfo(rowChange.getPropsList());
