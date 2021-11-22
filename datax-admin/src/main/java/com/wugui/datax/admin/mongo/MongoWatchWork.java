@@ -125,6 +125,7 @@ public class MongoWatchWork {
                 if (!workThreads.containsKey(unionTable) && ConsistentHashSingleton.instance().addSelfTask(unionTable)) {
                     String[] unionTableInfo = unionTable.split("_");
                     MongoWatchWorkThread thread = new MongoWatchWorkThread(unionTableInfo[0], unionTableInfo[1], unionTableInfo[2]);
+                    workThreads.put(unionTable, thread);
                     mongoWatchExecutor.execute(thread);
                     log.info("加入监听任务address:{}, database:{}, collection:{}", unionTableInfo[0], unionTableInfo[1], unionTableInfo[2]);
                 }
@@ -139,7 +140,7 @@ public class MongoWatchWork {
      * @param unionTable
      */
     public void addTask(String unionTable, Thread thread) {
-        if (!workThreads.containsKey(unionTable) && ConsistentHashSingleton.instance().addSelfTask(unionTable)) {
+        if (ConsistentHashSingleton.instance().addSelfTask(unionTable)) {
             String [] unionTableInfo = unionTable.split("_");
             workThreads.put(unionTable, thread);
             log.info("成功监听任务address:{}, database:{}, collection:{}", unionTableInfo[0], unionTableInfo[1], unionTableInfo[2]);
