@@ -8,9 +8,11 @@ import com.wugui.datatx.core.biz.model.ReturnT;
 import com.wugui.datatx.core.util.JobRemotingUtil;
 import com.wugui.datax.admin.core.conf.JobAdminConfig;
 import com.wugui.datax.admin.core.util.JacksonUtil;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import com.wugui.datax.admin.entity.IncrementSyncWaiting;
+import com.wugui.datax.admin.mapper.IncrementSyncWaitingMapper;
+import io.swagger.annotations.ApiOperation;
+import org.springframework.util.CollectionUtils;
+import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
@@ -26,13 +28,40 @@ public class JobApiController {
     @Resource
     private AdminBiz adminBiz;
 
+    @Resource
+    private IncrementSyncWaitingMapper incrementSyncWaitingMapper;
+
 
     /**
      * 执行增量等待方法
      */
-    @RequestMapping("/incrementWait")
+    @ApiOperation(value = "执行增量等待")
+    @GetMapping("/incrementWait")
     public ReturnT<String> executeIncrementSyncWaitings() {
         adminBiz.executeIncrementSyncWaitings();
+        return ReturnT.SUCCESS;
+    }
+
+    /**
+     * 查询增量等待
+     */
+    @ApiOperation(value = "查询增量等待")
+    @GetMapping("/incrementWait/findAll")
+    public ReturnT<List<IncrementSyncWaiting>> findAllIncrementSyncWaitings() {
+        return new ReturnT<>(incrementSyncWaitingMapper.findAll());
+    }
+
+    /**
+     * 删除增量等待
+     */
+    @ApiOperation(value = "删除增量等待")
+    @PostMapping("/incrementWait/delete")
+    public ReturnT<String> deleteIncrementSyncWaitings(@RequestBody List<Long> ids) {
+        if (!CollectionUtils.isEmpty(ids)) {
+            for (Long id : ids) {
+                incrementSyncWaitingMapper.delete(id);
+            }
+        }
         return ReturnT.SUCCESS;
     }
 
@@ -42,7 +71,7 @@ public class JobApiController {
      * @param data
      * @return
      */
-    @RequestMapping("/callback")
+    @PostMapping("/callback")
     public ReturnT<String> callback(HttpServletRequest request, @RequestBody(required = false) String data) {
         // valid
         if (JobAdminConfig.getAdminConfig().getAccessToken()!=null
@@ -71,7 +100,7 @@ public class JobApiController {
      * @param data
      * @return
      */
-    @RequestMapping("/processCallback")
+    @PostMapping("/processCallback")
     public ReturnT<String> processCallback(HttpServletRequest request, @RequestBody(required = false) String data) {
         // valid
         if (JobAdminConfig.getAdminConfig().getAccessToken()!=null
@@ -101,7 +130,7 @@ public class JobApiController {
      * @param data
      * @return
      */
-    @RequestMapping("/registry")
+    @PostMapping("/registry")
     public ReturnT<String> registry(HttpServletRequest request, @RequestBody(required = false) String data) {
         // valid
         if (JobAdminConfig.getAdminConfig().getAccessToken()!=null
@@ -129,7 +158,7 @@ public class JobApiController {
      * @param data
      * @return
      */
-    @RequestMapping("/registryRemove")
+    @PostMapping("/registryRemove")
     public ReturnT<String> registryRemove(HttpServletRequest request, @RequestBody(required = false) String data) {
         // valid
         if (JobAdminConfig.getAdminConfig().getAccessToken()!=null

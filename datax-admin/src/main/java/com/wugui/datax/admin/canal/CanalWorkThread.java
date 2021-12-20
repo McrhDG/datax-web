@@ -153,7 +153,7 @@ public class CanalWorkThread extends Thread {
             endPosition = buildPositionForDump(message.getEntries().get(message.getEntries().size() - 1));
         }
 
-        log.info(CONTEXT_FORMAT, batchId, size, memsize, DateUtil.format(), startPosition, endPosition);
+        log.debug(CONTEXT_FORMAT, batchId, size, memsize, DateUtil.format(), startPosition, endPosition);
     }
 
     private String buildPositionForDump(CanalEntry.Entry entry) {
@@ -185,7 +185,7 @@ public class CanalWorkThread extends Thread {
                             entry.getHeader().getLogfileOffset(),
                             executeTime, DateUtil.format(executeTime),
                             entry.getHeader().getGtid(), delayTime);
-                    log.info(" BEGIN ----> Thread id: {}", begin.getThreadId());
+                    log.debug(" BEGIN ----> Thread id: {}", begin.getThreadId());
                     printXAInfo(begin.getPropsList());
                 } else {
                     TransactionEnd end;
@@ -195,9 +195,9 @@ public class CanalWorkThread extends Thread {
                         throw new RuntimeException("parse event has an error , data:" + entry.toString(), e);
                     }
                     // 打印事务提交信息，事务id
-                    log.info(" END ----> transaction id: {}", end.getTransactionId());
+                    log.debug(" END ----> transaction id: {}", end.getTransactionId());
                     printXAInfo(end.getPropsList());
-                    log.info(TRANSACTION_FORMAT,
+                    log.debug(TRANSACTION_FORMAT,
                             entry.getHeader().getLogfileName(),
                             entry.getHeader().getLogfileOffset(),
                             executeTime, DateUtil.format(executeTime),
