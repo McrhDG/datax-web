@@ -524,7 +524,7 @@ public class CanalWorkThread extends Thread {
             PreparedStatement preparedStatement = connection.prepareStatement(insertSql);
             List<String> valueParam = new ArrayList<>();
             setValues(index, preparedStatement, mysqlData, valueParam);
-            log.info("insertSql:{}, value:{}", insertSql, valueParam);
+            log.info("jobId:{}, insertSql:{}, value:{}", convertInfo.getJobId(), insertSql, valueParam);
             update = preparedStatement.executeUpdate();
         } catch (Exception e) {
             log.error("columns.size:{} index:{}, error: ", mysqlData.size(), index, e);
@@ -624,7 +624,7 @@ public class CanalWorkThread extends Thread {
             index = setValues(index, preparedStatement, covertUpdateData, valueParam);
             List<String> condition = new ArrayList<>();
             setValues(index, preparedStatement, covertConditionData, condition);
-            log.info("updateSql:{}, value:{}, condition:{}", updateSql, valueParam, condition);
+            log.info("jobId:{}, updateSql:{}, value:{}, condition:{}", convertInfo.getJobId(), updateSql, valueParam, condition);
             update = preparedStatement.executeUpdate();
         } catch (Exception e) {
             log.error("columns.size:{} index:{}, error: ", covertUpdateData.size(), index, e);
@@ -669,7 +669,7 @@ public class CanalWorkThread extends Thread {
             connection = dataSource.getConnection();
             PreparedStatement preparedStatement = connection.prepareStatement(deleteSql);
             setValues(index, preparedStatement, covertConditionData, condition);
-            log.info("deleteSql:{}, condition:{}", deleteSql, condition);
+            log.info("jobId:{}, deleteSql:{}, condition:{}", convertInfo.getJobId(), deleteSql, condition);
             int update = preparedStatement.executeUpdate();
             log.info("affected row:{}", update);
         } catch (Exception e) {

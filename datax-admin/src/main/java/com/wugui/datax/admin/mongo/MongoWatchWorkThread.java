@@ -296,7 +296,7 @@ public class MongoWatchWorkThread extends Thread {
             PreparedStatement preparedStatement = connection.prepareStatement(insertSql);
             List<Object> valueParam = new ArrayList<>();
             setValues(index, preparedStatement, mysqlData, valueParam);
-            log.info("insertSql:{}, value:{}", insertSql, valueParam);
+            log.info("jobId:{}, insertSql:{}, value:{}", convertInfo.getJobId(), insertSql, valueParam);
             update = preparedStatement.executeUpdate();
         } catch (Exception e) {
             log.error("columns.size:{} index:{}, error:", mysqlData.size(), index, e);
@@ -482,7 +482,7 @@ public class MongoWatchWorkThread extends Thread {
             List<Object> valueParam = new ArrayList<>();
             index = setValues(index, preparedStatement, mysqlData, valueParam);
             preparedStatement.setObject(index + 1, idValue);
-            log.info("updateSql:{}, value:{}, condition:{}", updateSql, valueParam, idValue);
+            log.info("jobId:{}, updateSql:{}, value:{}, condition:{}", convertInfo.getJobId(), updateSql, valueParam, idValue);
             update = preparedStatement.executeUpdate();
         } catch (Exception e) {
             log.error("columns.size:{} index:{}, error: ", mysqlData.size(), index, e);
@@ -524,7 +524,7 @@ public class MongoWatchWorkThread extends Thread {
             connection = dataSource.getConnection();
             PreparedStatement preparedStatement = connection.prepareStatement(deleteSql);
             preparedStatement.setObject(1, id);
-            log.info("deleteSql:{}, [{}:{}]", deleteSql, unionKey, id);
+            log.info("jobId:{}, deleteSql:{}, [{}:{}]", convertInfo.getJobId(), deleteSql, unionKey, id);
             int update = preparedStatement.executeUpdate();
             log.info("affected row:{}", update);
         } catch (Exception e) {

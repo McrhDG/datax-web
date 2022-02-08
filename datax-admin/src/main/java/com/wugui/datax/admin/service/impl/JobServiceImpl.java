@@ -335,7 +335,15 @@ public class JobServiceImpl implements JobService {
         if (xxlJobInfo == null) {
             return ReturnT.SUCCESS;
         }
+        //移除任务
         IncrementUtil.removeTask(xxlJobInfo);
+        //同步到其他端点
+        MessageProducerService messageProducerService = JobAdminConfig.getAdminConfig().getMessageProducerService();
+        messageProducerService.sendMsg(xxlJobInfo, ProjectConstant.ENDPOINT_SYNC_ROUTING_KEY, message -> {
+            message.getMessageProperties().getHeaders().put(ProjectConstant.SOURCE_IP, JobAdminConfig.getAdminConfig().getIp());
+            message.getMessageProperties().getHeaders().put(ProjectConstant.TYPE, ProjectConstant.ACTION_TYPE.REMOVE.val());
+            return message;
+        });
 
         jobInfoMapper.delete(id);
         jobLogMapper.delete(id);
