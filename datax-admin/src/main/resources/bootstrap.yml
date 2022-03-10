@@ -5,7 +5,7 @@ app.id: ${spring.application.name}
 apollo:
   meta: http://apollo-config-server-dev.wenwo.cn
   bootstrap:
-    namespaces: application,canal.yml,BASIC-DEP.rabbitmq,BASIC-DEP.zk,BASIC-DEP.redis
+    namespaces: application,canal.yml,BASIC-DEP.rabbitmq,BASIC-DEP.zk,BASIC-DEP.redis,MID-DEP.logback
     enabled: true
     eagerLoad:
       enabled: true

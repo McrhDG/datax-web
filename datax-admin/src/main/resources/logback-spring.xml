@@ -3,6 +3,13 @@
 
     <property resource="bootstrap.yml"/>
     <springProperty scope="context" name="appName" source="spring.application.name"/>
+    <springProperty scope="context" name="env" source="spring.profiles.active" />
+    <springProperty scope="context" name="endpoint" source="endpoint" />
+    <springProperty scope="context" name="accessKeyId" source="accessKeyId" />
+    <springProperty scope="context" name="accessKeySecret" source="accessKeySecret" />
+    <springProperty scope="context" name="project" source="project" />
+    <springProperty scope="context" name="logStore" source="logStore" />
+    <springProperty scope="context" name="ip" source="ip" />
 
     <!--日志文件的保存路径,首先查找系统属性-Dlog.dir,如果存在就使用其；否则，在当前目录下创建名为logs目录做日志存放的目录 -->
     <property name="LOG_HOME" value="/data/logs/${appName}"/>
@@ -12,6 +19,48 @@
               value="[${appName}][%d{yyyy-MM-dd HH:mm:ss}][%-5level][%thread][%M][%c.%F,%L]==>%msg%n"/>
     <property name="ENCODER_PATTERN_ERROR"
               value="[${appName}][%d{yyyy-MM-dd HH:mm:ss}][%-5level][%thread][%logger{80}.%M][%F.%L]-->%msg%n"/>
+
+    <!--为了防止进程退出时，内存中的数据丢失，请加上此选项-->
+    <shutdownHook class="ch.qos.logback.core.hook.DelayingShutdownHook"/>
+    <!-- 阿里云 loghubAppender	-->
+    <appender name="loghubAppender" class="com.aliyun.openservices.log.logback.LoghubAppender">
+        <!--必选项-->
+        <!-- 账号及网络配置 -->
+        <endpoint>${endpoint}</endpoint>
+        <accessKeyId>${accessKeyId}</accessKeyId>
+        <accessKeySecret>${accessKeySecret}</accessKeySecret>
+        <!-- sls 项目配置 -->
+        <project>${project}</project>
+        <logStore>${appName}</logStore>
+        <!--必选项 (end)-->
+
+        <!-- 可选项 -->
+        <topic>${appName}</topic>
+        <source>${ip}</source>
+
+        <!-- 可选项 详见 '参数说明'-->
+        <totalSizeInBytes>104857600</totalSizeInBytes>
+        <maxBlockMs>60000</maxBlockMs>
+        <ioThreadCount>8</ioThreadCount>
+        <batchSizeThresholdInBytes>524288</batchSizeThresholdInBytes>
+        <batchCountThreshold>4096</batchCountThreshold>
+        <lingerMs>2000</lingerMs>
+        <retries>10</retries>
+        <baseRetryBackoffMs>100</baseRetryBackoffMs>
+        <maxRetryBackoffMs>100</maxRetryBackoffMs>
+
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="ch.qos.logback.classic.PatternLayout">
+                <pattern>${ENCODER_PATTERN_ERROR}</pattern>
+            </layout>
+        </encoder>
+
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter"><!-- 打印WARN,ERROR级别的日志 -->
+            <level>INFO</level>
+        </filter>
+
+        <mdcFields>THREAD_ID,MDC_KEY</mdcFields>
+    </appender>
 
     <!-- 控制台日志：输出全部日志到控制台 -->
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
@@ -90,6 +139,7 @@
 			<appender-ref ref="STDOUT"/>
 			<appender-ref ref="FILE"/>
 			<appender-ref ref="ERROR_FILE"/>
+            <appender-ref ref="loghubAppender"/>
         </root>
         <logger name="com.wugui.datax.admin.canal" level="INFO" additivity="false" >
             <appender-ref ref="CANAL_FILE"/>
@@ -109,6 +159,7 @@
             <level value="INFO"/>
             <appender-ref ref="FILE"/>
             <appender-ref ref="ERROR_FILE"/>
+            <appender-ref ref="loghubAppender"/>
         </root>
         <logger name="com.wugui.datax.admin.canal" level="INFO" additivity="false" >
             <appender-ref ref="CANAL_FILE"/>
@@ -127,6 +178,7 @@
             <level value="INFO"/>
             <appender-ref ref="FILE"/>
             <appender-ref ref="ERROR_FILE"/>
+            <appender-ref ref="loghubAppender"/>
         </root>
         <logger name="com.wugui.datax.admin.canal" level="INFO" additivity="false" >
             <appender-ref ref="CANAL_FILE"/>

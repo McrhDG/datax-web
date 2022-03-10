@@ -1,6 +1,7 @@
 package com.wugui.datax.admin.controller;
 
 
+import com.alibaba.fastjson.JSON;
 import com.wugui.datatx.core.biz.model.ReturnT;
 import com.wugui.datatx.core.util.DateUtil;
 import com.wugui.datax.admin.core.cron.CronExpression;
@@ -56,6 +57,7 @@ public class JobInfoController extends BaseController{
     @PostMapping("/add")
     @ApiOperation("添加任务")
     public ReturnT<String> add(HttpServletRequest request, @RequestBody JobInfo jobInfo) {
+        logger.info("{} add job info:{}", getCurrentUserName(), JSON.toJSONString(jobInfo));
         jobInfo.setUserId(getCurrentUserId(request));
         return jobService.add(jobInfo);
     }
@@ -63,6 +65,7 @@ public class JobInfoController extends BaseController{
     @PostMapping("/update")
     @ApiOperation("更新任务")
     public ReturnT<String> update(HttpServletRequest request,@RequestBody JobInfo jobInfo) {
+        logger.info("{} update job info:{}", getCurrentUserName(), JSON.toJSONString(jobInfo));
         jobInfo.setUserId(getCurrentUserId(request));
         return jobService.update(jobInfo);
     }
@@ -70,24 +73,28 @@ public class JobInfoController extends BaseController{
     @PostMapping(value = "/remove/{id}")
     @ApiOperation("移除任务")
     public ReturnT<String> remove(@PathVariable(value = "id") int id) {
+        logger.info("{} remove job id:{}", getCurrentUserName(), id);
         return jobService.remove(id);
     }
 
     @RequestMapping(value = "/stop",method = RequestMethod.POST)
     @ApiOperation("停止任务")
     public ReturnT<String> pause(int id) {
+        logger.info("{} pause job id:{}", getCurrentUserName(), id);
         return jobService.stop(id);
     }
 
     @RequestMapping(value = "/start",method = RequestMethod.POST)
     @ApiOperation("开启任务")
     public ReturnT<String> start(int id) {
+        logger.info("{} start job id:{}", getCurrentUserName(), id);
         return jobService.start(id);
     }
 
     @PostMapping(value = "/trigger")
     @ApiOperation("触发任务")
     public ReturnT<String> triggerJob(@RequestBody TriggerJobDto dto) {
+        logger.info("{} trigger job info:{}", getCurrentUserName(), JSON.toJSONString(dto));
         // force cover job param
         String executorParam=dto.getExecutorParam();
         if (executorParam == null) {
@@ -121,6 +128,7 @@ public class JobInfoController extends BaseController{
     @PostMapping("/batchAdd")
     @ApiOperation("批量创建任务")
     public ReturnT<String> batchAdd(@RequestBody DataXBatchJsonBuildDto dto) throws IOException {
+        logger.info("{} batchAdd job info:{}", getCurrentUserName(), JSON.toJSONString(dto));
         if (dto.getTemplateId() ==0) {
             return new ReturnT<>(ReturnT.FAIL_CODE, (I18nUtil.getString("system_please_choose") + I18nUtil.getString("jobinfo_field_temp")));
         }

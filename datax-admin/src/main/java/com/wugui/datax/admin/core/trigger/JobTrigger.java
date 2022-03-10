@@ -48,8 +48,9 @@ public class JobTrigger {
      * @param executorShardingParam
      * @param executorParam         null: use job param
      *                              not null: cover job param
+     * @param operator
      */
-    public static void trigger(int jobId, TriggerTypeEnum triggerType, int failRetryCount, String executorShardingParam, String executorParam) {
+    public static void trigger(int jobId, TriggerTypeEnum triggerType, int failRetryCount, String executorShardingParam, String executorParam, String operator) {
         JobInfo jobInfo = JobAdminConfig.getAdminConfig().getJobInfoMapper().loadById(jobId);
         if (jobInfo == null) {
             logger.warn(">>>>>>>>>>>> trigger fail, jobId invalid，jobId={}", jobId);
@@ -92,13 +93,13 @@ public class JobTrigger {
                 && group.getRegistryList() != null && !group.getRegistryList().isEmpty()
                 && shardingParam == null) {
             for (int i = 0; i < group.getRegistryList().size(); i++) {
-                processTrigger(group, jobInfo, finalFailRetryCount, triggerType, i, group.getRegistryList().size());
+                processTrigger(group, jobInfo, finalFailRetryCount, triggerType, i, group.getRegistryList().size(), operator);
             }
         } else {
             if (shardingParam == null) {
                 shardingParam = new int[]{0, 1};
             }
-            processTrigger(group, jobInfo, finalFailRetryCount, triggerType, shardingParam[0], shardingParam[1]);
+            processTrigger(group, jobInfo, finalFailRetryCount, triggerType, shardingParam[0], shardingParam[1], operator);
         }
 
     }
@@ -119,8 +120,9 @@ public class JobTrigger {
      * @param triggerType
      * @param index               sharding index
      * @param total               sharding index
+     * @param operator
      */
-    private static void processTrigger(JobGroup group, JobInfo jobInfo, int finalFailRetryCount, TriggerTypeEnum triggerType, int index, int total) {
+    private static void processTrigger(JobGroup group, JobInfo jobInfo, int finalFailRetryCount, TriggerTypeEnum triggerType, int index, int total, String operator) {
 
         TriggerParam triggerParam = new TriggerParam();
 
@@ -139,6 +141,7 @@ public class JobTrigger {
         jobLog.setJobId(jobInfo.getId());
         jobLog.setTriggerTime(triggerTime);
         jobLog.setJobDesc(jobInfo.getJobDesc());
+        jobLog.setOperator(operator);
 
         JobAdminConfig.getAdminConfig().getJobLogMapper().save(jobLog);
         logger.debug(">>>>>>>>>>> datax-web trigger start, jobId:{}", jobLog.getId());

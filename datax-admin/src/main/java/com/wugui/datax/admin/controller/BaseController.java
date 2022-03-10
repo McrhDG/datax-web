@@ -3,6 +3,8 @@ package com.wugui.datax.admin.controller;
 
 import com.baomidou.mybatisplus.extension.api.ApiController;
 import com.wugui.datax.admin.util.JwtTokenUtils;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import javax.servlet.http.HttpServletRequest;
 import java.util.Enumeration;
@@ -18,5 +20,17 @@ public class BaseController extends ApiController {
         Enumeration<String> auth = request.getHeaders(JwtTokenUtils.TOKEN_HEADER);
         String token = auth.nextElement().replace(JwtTokenUtils.TOKEN_PREFIX, STRING_BLANK);
         return JwtTokenUtils.getUserId(token);
+    }
+
+    /**
+     * 获取用户名称
+     * @return
+     */
+    public String getCurrentUserName() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication!=null && authentication.isAuthenticated()) {
+            return (String) authentication.getPrincipal();
+        }
+        return null;
     }
 }

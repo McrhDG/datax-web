@@ -63,4 +63,10 @@ public class JobLog {
 
     @ApiModelProperty("增量最大id")
     private Long maxId;
+
+    /**
+     * 操作人
+     */
+    @ApiModelProperty("操作人")
+    private String operator;
 }

@@ -1,10 +1,12 @@
 package com.wugui.datax.admin.core.thread;
 
 import com.wugui.datax.admin.core.conf.JobAdminConfig;
-import com.wugui.datax.admin.core.trigger.TriggerTypeEnum;
 import com.wugui.datax.admin.core.trigger.JobTrigger;
+import com.wugui.datax.admin.core.trigger.TriggerTypeEnum;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -15,7 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @author xuxueli 2018-07-03 21:08:07
  */
 public class JobTriggerPoolHelper {
-    private static Logger logger = LoggerFactory.getLogger(JobTriggerPoolHelper.class);
+    private static final Logger logger = LoggerFactory.getLogger(JobTriggerPoolHelper.class);
 
 
     // ---------------------- trigger pool ----------------------
@@ -30,26 +32,16 @@ public class JobTriggerPoolHelper {
                 JobAdminConfig.getAdminConfig().getTriggerPoolFastMax(),
                 60L,
                 TimeUnit.SECONDS,
-                new LinkedBlockingQueue<Runnable>(1000),
-                new ThreadFactory() {
-                    @Override
-                    public Thread newThread(Runnable r) {
-                        return new Thread(r, "datax-web, admin JobTriggerPoolHelper-fastTriggerPool-" + r.hashCode());
-                    }
-                });
+                new LinkedBlockingQueue<>(1000),
+                r -> new Thread(r, "datax-web, admin JobTriggerPoolHelper-fastTriggerPool-" + r.hashCode()));
 
         slowTriggerPool = new ThreadPoolExecutor(
                 10,
                 JobAdminConfig.getAdminConfig().getTriggerPoolSlowMax(),
                 60L,
                 TimeUnit.SECONDS,
-                new LinkedBlockingQueue<Runnable>(2000),
-                new ThreadFactory() {
-                    @Override
-                    public Thread newThread(Runnable r) {
-                        return new Thread(r, "datax-web, admin JobTriggerPoolHelper-slowTriggerPool-" + r.hashCode());
-                    }
-                });
+                new LinkedBlockingQueue<>(2000),
+                r -> new Thread(r, "datax-web, admin JobTriggerPoolHelper-slowTriggerPool-" + r.hashCode()));
     }
 
 
@@ -77,12 +69,18 @@ public class JobTriggerPoolHelper {
         if (jobTimeoutCount != null && jobTimeoutCount.get() > 10) {      // job-timeout 10 times in 1 min
             triggerPool_ = slowTriggerPool;
         }
+        String operator = null;
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication!=null && authentication.isAuthenticated()) {
+            operator = (String) authentication.getPrincipal();
+        }
         // trigger
+        final String finalOperator = operator;
         triggerPool_.execute(() -> {
             long start = System.currentTimeMillis();
             try {
                 // do trigger
-                JobTrigger.trigger(jobId, triggerType, failRetryCount, executorShardingParam, executorParam);
+                JobTrigger.trigger(jobId, triggerType, failRetryCount, executorShardingParam, executorParam, finalOperator);
             } catch (Exception e) {
                 logger.error(e.getMessage(), e);
             } finally {
