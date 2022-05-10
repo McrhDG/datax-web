@@ -1,8 +1,6 @@
 package com.wugui.datax.admin.mongo;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.serializer.SerializerFeature;
-import com.google.common.base.Joiner;
+import com.mongodb.MongoCommandException;
 import com.mongodb.MongoInterruptedException;
 import com.mongodb.client.ChangeStreamIterable;
 import com.mongodb.client.MongoClient;
@@ -12,12 +10,12 @@ import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.client.model.changestream.FullDocument;
 import com.mongodb.client.model.changestream.OperationType;
 import com.mongodb.client.model.changestream.UpdateDescription;
+import com.wenwo.cloud.message.driven.producer.service.MessageProducerService;
 import com.wugui.datax.admin.constants.ProjectConstant;
 import com.wugui.datax.admin.core.conf.JobAdminConfig;
 import com.wugui.datax.admin.core.util.IncrementUtil;
 import com.wugui.datax.admin.entity.ConvertInfo;
 import com.wugui.datax.admin.util.MongoUtil;
-import com.wugui.datax.admin.util.MysqlUtil;
 import com.wugui.datax.admin.util.SpringContextHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -28,12 +26,11 @@ import org.bson.Document;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.util.CollectionUtils;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
-import java.sql.Types;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -54,16 +51,22 @@ public class MongoWatchWorkThread extends Thread {
 
     private final RedisTemplate<String, String> redisTemplate = SpringContextHolder.getBean("redisTemplate");
 
+    private final Map<Integer, List<MongoJobInfo>> jobs = new ConcurrentHashMap<>();
+
+    private final MessageProducerService messageProducerService;
+
     /**
      * 构造函数
      * @param connectUrl
      * @param database
      * @param collection
+     * @param messageProducerService
      */
-    public MongoWatchWorkThread(String connectUrl, String database, String collection) {
+    public MongoWatchWorkThread(String connectUrl, String database, String collection, MessageProducerService messageProducerService) {
         this.connectUrl = connectUrl;
         this.database = database;
         this.collection = collection;
+        this.messageProducerService = messageProducerService;
     }
 
     @Override
@@ -75,7 +78,7 @@ public class MongoWatchWorkThread extends Thread {
         int retry = 0;
         long sleepTime = 1000L;
         int connectionTry = JobAdminConfig.getAdminConfig().getMongoConnectionTry();
-        String redisUnionTable = String.format(ProjectConstant.REDIS_UNION_COLLECTION__KEY_FORMAT, connectUrl, database, collection);
+        String redisUnionTable = String.format(ProjectConstant.REDIS_UNION_COLLECTION_KEY_FORMAT, connectUrl, database, collection);
         MongoClient mongoClient;
         while (true) {
             try {
@@ -142,9 +145,23 @@ public class MongoWatchWorkThread extends Thread {
                         break;
                     }
                 }
+                //异步处理各个任务
+                if (!jobs.isEmpty()) {
+                    jobs.forEach((k,v) -> {
+                        if (!v.isEmpty()) {
+                            messageProducerService.sendMsg(v, k.toString());
+                        }
+                    });
+                    jobs.clear();
+                }
             } catch (MongoInterruptedException e) {
                 exit();
                 return;
+            }  catch (MongoCommandException e) {
+                log.error("MongoCommandException:", e);
+                if (260==e.getErrorCode()) {
+                    redisTemplate.delete(redisUnionTable);
+                }
             } catch (Throwable e) {
                 log.error("process error!", e);
                 try {
@@ -189,12 +206,26 @@ public class MongoWatchWorkThread extends Thread {
             if (convertInfo == null) {
                 continue;
             }
-            try {
-                insert(convertInfo, mongoData);
-            } catch (Exception e) {
-                IncrementUtil.saveWaiting(jobId, OperationType.INSERT.name(), ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH, mongoData, null, id);
-            }
+            List<MongoJobInfo> mongoJobInfos = getMongoJobInfos(jobId);
+            MongoJobInfo mongoJobInfo = MongoJobInfo.builder().eventType(OperationType.INSERT).updateColumns(mongoData).idValue(id).build();
+            mongoJobInfos.add(mongoJobInfo);
         }
+    }
+
+    /**
+     * 获取记录
+     * @param jobId
+     * @return
+     */
+    private List<MongoJobInfo> getMongoJobInfos(Integer jobId) {
+        List<MongoJobInfo> mongoJobInfos;
+        if (jobs.containsKey(jobId)) {
+            mongoJobInfos = jobs.get(jobId);
+        } else {
+            mongoJobInfos = new ArrayList<>();
+            jobs.put(jobId, mongoJobInfos);
+        }
+        return mongoJobInfos;
     }
 
     /**
@@ -239,11 +270,9 @@ public class MongoWatchWorkThread extends Thread {
             if (convertInfo == null) {
                 continue;
             }
-            try {
-                update(convertInfo, mongoData, id);
-            } catch (Exception e) {
-                IncrementUtil.saveWaiting(jobId, OperationType.UPDATE.name(), ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH, mongoData, id, id);
-            }
+            List<MongoJobInfo> mongoJobInfos = getMongoJobInfos(jobId);
+            MongoJobInfo mongoJobInfo = MongoJobInfo.builder().eventType(OperationType.UPDATE).updateColumns(mongoData).id(id).idValue(id).build();
+            mongoJobInfos.add(mongoJobInfo);
         }
     }
 
@@ -264,280 +293,9 @@ public class MongoWatchWorkThread extends Thread {
             if (convertInfo == null) {
                 continue;
             }
-            try {
-                delete(convertInfo, id);
-            } catch (Exception e) {
-                IncrementUtil.saveWaiting(jobId, OperationType.DELETE.name(), ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH, null, id, id);
-            }
+            List<MongoJobInfo> mongoJobInfos = getMongoJobInfos(jobId);
+            MongoJobInfo mongoJobInfo = MongoJobInfo.builder().eventType(OperationType.DELETE).id(id).idValue(id).build();
+            mongoJobInfos.add(mongoJobInfo);
         }
     }
-
-    /**
-     * 插入
-     * @param convertInfo
-     * @param mongoData
-     */
-    public static void insert(ConvertInfo convertInfo, Map<String, Object> mongoData) throws SQLException {
-        DataSource dataSource = MysqlUtil.getDataSource(convertInfo.getWriteUrl(), convertInfo.getJobId());
-        if (dataSource==null) {
-            log.error("jobId:{}, 无法找到可用数据源", convertInfo.getJobId());
-            return;
-        }
-        // 数据源中的各个表
-        Map<String, ConvertInfo.ToColumn> relation = convertInfo.getTableColumns();
-        Map<String, Object> mysqlData = columnConvert(mongoData, relation);
-        // 每个表 执行sql
-        String insertSql = doGetInsertSql(convertInfo.getTableName(), mysqlData);
-        int update;
-        int index = 0;
-        Connection connection = null;
-        try {
-            connection = dataSource.getConnection();
-            PreparedStatement preparedStatement = connection.prepareStatement(insertSql);
-            List<Object> valueParam = new ArrayList<>();
-            setValues(index, preparedStatement, mysqlData, valueParam);
-            log.info("jobId:{}, insertSql:{}, value:{}", convertInfo.getJobId(), insertSql, valueParam);
-            update = preparedStatement.executeUpdate();
-        } catch (Exception e) {
-            log.error("columns.size:{} index:{}, error:", mysqlData.size(), index, e);
-            throw e;
-        } finally {
-            try {
-                assert connection != null;
-                // 回收,并非关闭
-                connection.close();
-            } catch (SQLException e) {
-                log.error("close Exception", e);
-            }
-        }
-        log.info("statement.executeInsert result:{}", update);
-    }
-
-    /**
-     * 列转换: 从mongo 的列 转换为 mysql的列
-     *
-     * @param mongoData mongo的数据map
-     * @param relation 列转换关系
-     * @return 转换后的 mysql数据
-     */
-    private static Map<String, Object> columnConvert(Map<String, Object> mongoData, Map<String, ConvertInfo.ToColumn> relation) {
-        // 这里使用 TreeMap
-        TreeMap<String, Object> mysqlData = new TreeMap<>();
-        for (Map.Entry<String, ConvertInfo.ToColumn> entry : relation.entrySet()) {
-            String fromColumn = entry.getKey();
-            ConvertInfo.ToColumn toColumn = entry.getValue();
-            if (mongoData.containsKey(fromColumn)) {
-                mysqlData.put(toColumn.getName(), convertValue(toColumn, mongoData.get(fromColumn)));
-            } else if (fromColumn.contains(".")) {
-                String[] splits = fromColumn.split("\\.");
-                Map<String, Object> map = null;
-                String key = "";
-                int index = 0;
-                for (String split : splits) {
-                    index++;
-                    key += (StringUtils.isNotBlank(key)?".":"") + split;
-                    if (mongoData.get(key) instanceof Map) {
-                        map = (Map<String, Object>) mongoData.get(key);
-                        break;
-                    }
-                }
-                Object value = null;
-                if(map!=null && index < splits.length) {
-                    for (int i = index; i < splits.length; i++) {
-                        String split = splits[i];
-                        value = map.get(split);
-                        if (value instanceof Map) {
-                            map = (Map<String, Object>) value;
-                        }
-                    }
-                    mysqlData.put(toColumn.getName(), convertValue(toColumn, value));
-                }
-            }
-        }
-        return mysqlData;
-    }
-
-    /**
-     * 数组类型
-     */
-    private static final String ARRAY_TYPE = "array";
-    /**
-     * 嵌入文档数组类型
-     */
-    private static final String DOCUMENT_ARRAY_TYPE = "document.array";
-
-    /**
-     * 值装换
-     * @param toColumn
-     * @param value
-     * @return
-     */
-    private static Object convertValue(ConvertInfo.ToColumn toColumn, Object value) {
-        if(value==null) {
-           return null;
-        }
-        String type = toColumn.getFromType();
-        try {
-           if(value instanceof Collection) {
-                if (ARRAY_TYPE.equals(type) || DOCUMENT_ARRAY_TYPE.equals(type)) {
-                    String splitter = toColumn.getSplitter();
-                    if (StringUtils.isBlank(splitter)) {
-                        splitter = ",";
-                    }
-                    return Joiner.on(splitter).join((Iterable<?>) value);
-                } else {
-                    return JSON.toJSONString(value, SerializerFeature.WriteDateUseDateFormat);
-                }
-            } else if(!MongoUtil.isBaseType(value.getClass()))  {
-                return JSON.toJSONString(value, SerializerFeature.WriteDateUseDateFormat);
-            }
-        } catch (Exception e) {
-            return value;
-        }
-        return value;
-    }
-
-    /**
-     *
-     * @param tableName
-     * @param data
-     * @return
-     */
-    private static String doGetInsertSql(String tableName, Map<String, Object> data) {
-        String insertSql;
-        String column;
-        StringBuilder insertBuilder = new StringBuilder("INSERT IGNORE `");
-        insertBuilder.append(tableName);
-        insertBuilder.append("` (");
-        StringBuilder placeholders = new StringBuilder(" VALUES(");
-        for (Map.Entry<String, Object> entry : data.entrySet()) {
-            column = entry.getKey();
-            insertBuilder.append("`").append(column).append("`").append(",");
-            placeholders.append("?").append(",");
-        }
-        insertBuilder.delete(insertBuilder.length() - 1, insertBuilder.length()).append(")");
-        placeholders.delete(placeholders.length() - 1, placeholders.length()).append(")");
-        insertSql = insertBuilder.append(placeholders).toString();
-        return insertSql;
-    }
-
-    /**
-     * 设置值
-     * @param index
-     * @param preparedStatement
-     * @param mysqlData
-     * @param valueParam
-     * @throws SQLException
-     */
-    private static int setValues(int index, PreparedStatement preparedStatement, Map<String, Object> mysqlData, List<Object> valueParam) throws SQLException {
-        Object value;
-        for (Map.Entry<String, Object> entry : mysqlData.entrySet()) {
-            index ++;
-            value = entry.getValue();
-            valueParam.add(value);
-            if (value==null) {
-                preparedStatement.setNull(index, Types.OTHER);
-                continue;
-            }
-            preparedStatement.setObject(index, value);
-        }
-        return index;
-    }
-
-    /**
-     * 更新
-     * @param convertInfo
-     * @param updateData
-     * @param idValue
-     */
-    public static void update(ConvertInfo convertInfo, Map<String, Object> updateData, String idValue) throws SQLException {
-        DataSource dataSource = MysqlUtil.getDataSource(convertInfo.getWriteUrl(), convertInfo.getJobId());
-        if (dataSource==null) {
-            log.error("jobId:{}, 无法找到可用数据源", convertInfo.getJobId());
-            return;
-        }
-        // 数据源中的各个表
-        Map<String, ConvertInfo.ToColumn> relation = convertInfo.getTableColumns();
-
-        Map<String, Object> mysqlData = columnConvert(updateData, relation);
-        // 每个表 执行sql
-        String unionKey = MongoUtil.getUnionKey(relation);
-        if (StringUtils.isBlank(unionKey)) {
-            log.info("主键不明，无法更新");
-            return;
-        }
-        String conditionSql = MysqlUtil.doGetConditionSql(convertInfo, Collections.singleton(unionKey));
-        mysqlData.remove(unionKey);
-        if (mysqlData.isEmpty()) {
-            log.info("无需更新");
-            return;
-        }
-        String updateSql = MysqlUtil.doGetUpdateSql(convertInfo.getTableName(), mysqlData.keySet(), conditionSql);
-        int update;
-        int index = 0;
-        Connection connection = null;
-        try {
-            connection = dataSource.getConnection();
-            PreparedStatement preparedStatement = connection.prepareStatement(updateSql);
-            List<Object> valueParam = new ArrayList<>();
-            index = setValues(index, preparedStatement, mysqlData, valueParam);
-            preparedStatement.setObject(index + 1, idValue);
-            log.info("jobId:{}, updateSql:{}, value:{}, condition:{}", convertInfo.getJobId(), updateSql, valueParam, idValue);
-            update = preparedStatement.executeUpdate();
-        } catch (Exception e) {
-            log.error("columns.size:{} index:{}, error: ", mysqlData.size(), index, e);
-            throw e;
-        } finally {
-            try {
-                assert connection != null;
-                // 回收,并非关闭
-                connection.close();
-            } catch (SQLException e) {
-                log.error("close Exception", e);
-            }
-        }
-        log.info("statement.executeUpdate result:{}", update);
-    }
-
-    /**
-     * 更新
-     * @param convertInfo
-     * @param id
-     */
-    public static void delete(ConvertInfo convertInfo, String id) throws SQLException {
-        DataSource dataSource = MysqlUtil.getDataSource(convertInfo.getWriteUrl(), convertInfo.getJobId());
-        if (dataSource==null) {
-            log.error("jobId:{}, 无法找到可用数据源", convertInfo.getJobId());
-            return;
-        }
-        // 数据源中的各个表
-        Map<String, ConvertInfo.ToColumn> relation = convertInfo.getTableColumns();
-        // 每个表 执行sql
-        String unionKey = MongoUtil.getUnionKey(relation);
-        if (StringUtils.isBlank(unionKey)) {
-            log.info("主键不明，无法删除");
-            return;
-        }
-        String deleteSql = MysqlUtil.doGetDeleteSql(convertInfo, Collections.singleton(unionKey));
-        Connection connection = null;
-        try {
-            connection = dataSource.getConnection();
-            PreparedStatement preparedStatement = connection.prepareStatement(deleteSql);
-            preparedStatement.setObject(1, id);
-            log.info("jobId:{}, deleteSql:{}, [{}:{}]", convertInfo.getJobId(), deleteSql, unionKey, id);
-            int update = preparedStatement.executeUpdate();
-            log.info("affected row:{}", update);
-        } catch (Exception e) {
-            log.error("id:{},delete error:", id, e);
-            throw e;
-        } finally {
-            try {
-                assert connection != null;
-                connection.close();
-            } catch (SQLException e) {
-                log.error("close Exception", e);
-            }
-        }
-    }
-
 }

@@ -32,6 +32,7 @@ public class EndpointSyncListener {
                 IncrementUtil.removeTask(jobInfo);
             } else if (ProjectConstant.ACTION_TYPE.TRIGGER.val().equals(type)) {
                 IncrementUtil.initIncrementData(jobInfo, true);
+                IncrementUtil.addQueue(jobInfo);
             }
         }
     }

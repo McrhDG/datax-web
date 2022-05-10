@@ -2,6 +2,8 @@ package com.wugui.datax.admin.service.impl;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.TypeReference;
+import com.alibaba.otter.canal.protocol.CanalEntry;
+import com.mongodb.client.model.changestream.OperationType;
 import com.wenwo.cloud.message.driven.producer.service.MessageProducerService;
 import com.wugui.datatx.core.biz.AdminBiz;
 import com.wugui.datatx.core.biz.model.HandleCallbackParam;
@@ -10,7 +12,7 @@ import com.wugui.datatx.core.biz.model.RegistryParam;
 import com.wugui.datatx.core.biz.model.ReturnT;
 import com.wugui.datatx.core.enums.IncrementTypeEnum;
 import com.wugui.datatx.core.handler.IJobHandler;
-import com.wugui.datax.admin.canal.CanalWorkThread;
+import com.wugui.datax.admin.canal.CanalJobInfo;
 import com.wugui.datax.admin.canal.ColumnValue;
 import com.wugui.datax.admin.constants.ProjectConstant;
 import com.wugui.datax.admin.core.conf.JobAdminConfig;
@@ -27,7 +29,7 @@ import com.wugui.datax.admin.mapper.IncrementSyncWaitingMapper;
 import com.wugui.datax.admin.mapper.JobInfoMapper;
 import com.wugui.datax.admin.mapper.JobLogMapper;
 import com.wugui.datax.admin.mapper.JobRegistryMapper;
-import com.wugui.datax.admin.mongo.MongoWatchWorkThread;
+import com.wugui.datax.admin.mongo.MongoJobInfo;
 import com.wugui.datax.admin.mq.RunningJob;
 import com.wugui.datax.admin.util.RedisLock;
 import org.slf4j.Logger;
@@ -41,6 +43,7 @@ import org.springframework.util.StringUtils;
 import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import java.text.MessageFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -66,6 +69,9 @@ public class AdminBizImpl implements AdminBiz {
     /** redis锁*/
     @Autowired
     private RedisLock redisLock;
+
+    @Resource
+    private MessageProducerService messageProducerService;
 
     /**
      * 处理待运行数据
@@ -136,51 +142,58 @@ public class AdminBizImpl implements AdminBiz {
                     incrementSyncWaitingMapper.deleteByJobId(jobId);
                     return;
                 }
-
+                String type = incrementSyncWaitings.get(0).getType();
+                List<CanalJobInfo> canalJobInfos = new ArrayList<>();
+                List<MongoJobInfo> mongoJobInfos = new ArrayList<>();
                 for (IncrementSyncWaiting incrementSyncWaiting : incrementSyncWaitings) {
                     String operationType = incrementSyncWaiting.getOperationType();
                     String content = incrementSyncWaiting.getContent();
                     String condition = incrementSyncWaiting.getCondition();
-                    String type = incrementSyncWaiting.getType();
-                    String idValue = incrementSyncWaiting.getIdValue();
-                    try {
-                        switch (operationType) {
-                            case "INSERT":
-                                if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
-                                    Map<String, Object> data = JSON.parseObject(content);
-                                    MongoWatchWorkThread.insert(convertInfo, data);
-                                } else if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(type)) {
-                                    Map<String, ColumnValue> insertMap = JSON.parseObject(content, new TypeReference<Map<String, ColumnValue>>() {});
-                                    CanalWorkThread.insert(convertInfo, insertMap);
-                                }
-                                break;
-                            case "UPDATE":
-                            case "REPLACE":
-                                if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
-                                    Map<String, Object> data = JSON.parseObject(content);
-                                    MongoWatchWorkThread.update(convertInfo, data, condition);
-                                } else if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(type)) {
-                                    Map<String, ColumnValue> updateMap = JSON.parseObject(content, new TypeReference<Map<String, ColumnValue>>() {});
-                                    Map<String, ColumnValue> conditionMap = JSON.parseObject(condition, new TypeReference<Map<String, ColumnValue>>() {});
-                                    CanalWorkThread.update(convertInfo, updateMap, conditionMap);
-                                }
-                                break;
-                            case "DELETE":
-                                if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
-                                    MongoWatchWorkThread.delete(convertInfo, condition);
-                                } else if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(type)) {
-                                    Map<String, ColumnValue> conditionMap = JSON.parseObject(condition, new TypeReference<Map<String, ColumnValue>>() {});
-                                    CanalWorkThread.delete(convertInfo, conditionMap);
-                                }
-                                break;
-                            default:
-                                logger.info("operation:{} not support, jobId:{}", operationType, jobId);
-                        }
-                        incrementSyncWaitingMapper.deleteByOperation(jobId, idValue, operationType);
-                    } catch (Exception e) {
-                        logger.error("jobId:{},idValue:{}, execute error:{}",jobId, idValue, e.getMessage());
+                    switch (operationType) {
+                        case "INSERT":
+                            if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
+                                Map<String, Object> data = JSON.parseObject(content);
+                                MongoJobInfo mongoJobInfo = MongoJobInfo.builder().eventType(OperationType.INSERT).updateColumns(data).build();
+                                mongoJobInfos.add(mongoJobInfo);
+                            } else if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(type)) {
+                                Map<String, ColumnValue> insertMap = JSON.parseObject(content, new TypeReference<Map<String, ColumnValue>>() {});
+                                CanalJobInfo canalJobInfo = CanalJobInfo.builder().eventType(CanalEntry.EventType.INSERT).updateColumns(insertMap).build();
+                                canalJobInfos.add(canalJobInfo);
+                            }
+                            break;
+                        case "UPDATE":
+                        case "REPLACE":
+                            if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
+                                Map<String, Object> data = JSON.parseObject(content);
+                                MongoJobInfo mongoJobInfo = MongoJobInfo.builder().eventType(OperationType.UPDATE).updateColumns(data).id(condition).build();
+                                mongoJobInfos.add(mongoJobInfo);
+                            } else if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(type)) {
+                                Map<String, ColumnValue> updateMap = JSON.parseObject(content, new TypeReference<Map<String, ColumnValue>>() {});
+                                Map<String, ColumnValue> conditionMap = JSON.parseObject(condition, new TypeReference<Map<String, ColumnValue>>() {});
+                                CanalJobInfo canalJobInfo = CanalJobInfo.builder().eventType(CanalEntry.EventType.UPDATE).updateColumns(updateMap).conditionColumns(conditionMap).build();
+                                canalJobInfos.add(canalJobInfo);
+                            }
+                            break;
+                        case "DELETE":
+                            if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
+                                MongoJobInfo mongoJobInfo = MongoJobInfo.builder().eventType(OperationType.DELETE).id(condition).build();
+                                mongoJobInfos.add(mongoJobInfo);
+                            } else if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(type)) {
+                                Map<String, ColumnValue> conditionMap = JSON.parseObject(condition, new TypeReference<Map<String, ColumnValue>>() {});
+                                CanalJobInfo canalJobInfo = CanalJobInfo.builder().eventType(CanalEntry.EventType.DELETE).conditionColumns(conditionMap).build();
+                                canalJobInfos.add(canalJobInfo);
+                            }
+                            break;
+                        default:
+                            logger.info("operation:{} not support, jobId:{}", operationType, jobId);
                     }
                 }
+                if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(type) && !canalJobInfos.isEmpty()) {
+                    messageProducerService.sendMsg(canalJobInfos, String.valueOf(jobId));
+                } else if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type) && !mongoJobInfos.isEmpty()) {
+                    messageProducerService.sendMsg(mongoJobInfos, String.valueOf(jobId));
+                }
+                incrementSyncWaitingMapper.deleteByJobId(jobId);
             } finally {
                 redisLock.unlock(lock);
             }

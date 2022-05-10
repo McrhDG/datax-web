@@ -19,6 +19,9 @@ import com.wugui.datax.admin.util.SpringContextHolder;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.amqp.core.*;
+import org.springframework.amqp.rabbit.core.RabbitAdmin;
+import org.springframework.amqp.rabbit.listener.DirectMessageListenerContainer;
 import org.springframework.util.CollectionUtils;
 
 import java.util.Date;
@@ -58,7 +61,6 @@ public class IncrementUtil {
      * 正在全量同步的任务
      */
     private static final Set<Integer> RUNNING_JOBS = new CopyOnWriteArraySet<>();
-
 
     /**
      * 初始化增量同步器
@@ -151,6 +153,34 @@ public class IncrementUtil {
         Map<String, ConvertInfo.ToColumn> convertTableColumn = mysqlConvertTableColumn(readerColumnArray, writerColumnArray);
         putConvertInfo(jobInfo, writerParam, initTimestamp, convertTableColumn);
         log.info("jobId:{}, initCanal, init:{}", jobInfo.getId(), isInit);
+    }
+
+    /**
+     * 新增队列
+     * @param jobInfo
+     */
+    public static void addQueue(JobInfo jobInfo) {
+        if (jobInfo==null || StringUtils.isBlank(jobInfo.getIncrementSyncType())) {
+            return;
+        }
+        String queueName = String.format((ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(jobInfo.getIncrementSyncType())?ProjectConstant.CANAL_JOB_QUEUE_FORMAT:ProjectConstant.MONGO_JOB_QUEUE_FORMAT), jobInfo.getId());
+        RabbitAdmin rabbitAdmin = SpringContextHolder.getBean(RabbitAdmin.class);
+        QueueInformation queueInfo = rabbitAdmin.getQueueInfo(queueName);
+        if (queueInfo==null) {
+            Queue queue = new Queue(queueName, true, false, false);
+            TopicExchange topicExchange = SpringContextHolder.getBean(TopicExchange.class);
+            rabbitAdmin.declareExchange(topicExchange);
+            rabbitAdmin.declareQueue(queue);
+            Binding binding = BindingBuilder.bind(queue).to(topicExchange).with(String.valueOf(jobInfo.getId()));
+            rabbitAdmin.declareBinding(binding);
+        }
+        DirectMessageListenerContainer container;
+        if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(jobInfo.getIncrementSyncType())) {
+            container = SpringContextHolder.getBean("canalMessageListenerContainer");
+        } else {
+            container = SpringContextHolder.getBean("mongoMessageListenerContainer");
+        }
+        container.addQueueNames(queueName);
     }
 
     /**
@@ -434,11 +464,36 @@ public class IncrementUtil {
                 }
             }
             CONVERT_INFO_MAP.remove(jobInfo.getId());
-            jobInfo.setIncrementSyncType(null);
+
+            removeMessageListenerContainer(jobInfo);
+
+            //jobInfo.setIncrementSyncType(null);
             jobInfo.setIncrementSyncTime(null);
             log.info("jobId:{}, removeTask", jobInfo.getId());
         } catch (Exception e) {
             log.error("removeTask error:", e);
+        }
+    }
+
+    /**
+     * 移除消息监听
+     * @param jobInfo
+     */
+    private static void removeMessageListenerContainer(JobInfo jobInfo) {
+        //删除队列
+        if (jobInfo.getIncrementSyncType()!=null) {
+            DirectMessageListenerContainer container;
+            String queueName;
+            if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(jobInfo.getIncrementSyncType())) {
+                queueName = String.format(ProjectConstant.CANAL_JOB_QUEUE_FORMAT, jobInfo.getId());
+                container = SpringContextHolder.getBean("canalMessageListenerContainer");
+            } else {
+                queueName = String.format(ProjectConstant.MONGO_JOB_QUEUE_FORMAT, jobInfo.getId());
+                container = SpringContextHolder.getBean("mongoMessageListenerContainer");
+            }
+            container.removeQueueNames(queueName);
+            RabbitAdmin rabbitAdmin = SpringContextHolder.getBean(RabbitAdmin.class);
+            rabbitAdmin.deleteQueue(queueName);
         }
     }
 

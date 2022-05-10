@@ -7,6 +7,7 @@ import com.alibaba.otter.canal.protocol.Message;
 import com.alibaba.otter.canal.protocol.exception.CanalClientException;
 import com.google.common.collect.Maps;
 import com.google.protobuf.InvalidProtocolBufferException;
+import com.wenwo.cloud.message.driven.producer.service.MessageProducerService;
 import com.wugui.datax.admin.constants.ProjectConstant;
 import com.wugui.datax.admin.core.util.IncrementUtil;
 import com.wugui.datax.admin.entity.ConvertInfo;
@@ -22,6 +23,7 @@ import javax.sql.DataSource;
 import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -53,6 +55,10 @@ public class CanalWorkThread extends Thread {
 
     private volatile boolean running = true;
 
+    private final Map<Integer, List<CanalJobInfo>> jobs = new ConcurrentHashMap<>();
+
+    private final MessageProducerService messageProducerService;
+
     public void noRun() {
         this.running = false;
     }
@@ -61,8 +67,9 @@ public class CanalWorkThread extends Thread {
      * 构造函数
      * @param address
      */
-    public CanalWorkThread(String address) {
+    public CanalWorkThread(String address, MessageProducerService messageProducerService) {
         this.address = address;
+        this.messageProducerService = messageProducerService;
     }
 
 
@@ -259,6 +266,16 @@ public class CanalWorkThread extends Thread {
                 }
             }
         }
+
+        //异步处理各个任务
+        if (!jobs.isEmpty()) {
+            jobs.forEach((k,v) -> {
+                if (!v.isEmpty()) {
+                    messageProducerService.sendMsg(v, k.toString());
+                }
+            });
+            jobs.clear();
+        }
     }
 
     private void printXAInfo(List<CanalEntry.Pair> pairs) {
@@ -387,12 +404,26 @@ public class CanalWorkThread extends Thread {
             if (convertInfo==null) {
                 continue;
             }
-            try {
-                insert(convertInfo, insertColumns);
-            } catch (Exception e) {
-                IncrementUtil.saveWaiting(jobId, CanalEntry.EventType.INSERT.name(), ProjectConstant.INCREMENT_SYNC_TYPE.CANAL, insertColumns, null, idValue);
-            }
+            List<CanalJobInfo> canalJobInfos = getCanalJobInfos(jobId);
+            CanalJobInfo canalJobInfo = CanalJobInfo.builder().eventType(EventType.INSERT).updateColumns(insertColumns).idValue(idValue).build();
+            canalJobInfos.add(canalJobInfo);
         }
+    }
+
+    /**
+     * 获取记录
+     * @param jobId
+     * @return
+     */
+    private List<CanalJobInfo> getCanalJobInfos(Integer jobId) {
+        List<CanalJobInfo> canalJobInfos;
+        if (jobs.containsKey(jobId)) {
+            canalJobInfos = jobs.get(jobId);
+        } else {
+            canalJobInfos = new ArrayList<>();
+            jobs.put(jobId, canalJobInfos);
+        }
+        return canalJobInfos;
     }
 
 
@@ -442,11 +473,9 @@ public class CanalWorkThread extends Thread {
             if (convertInfo==null) {
                 continue;
             }
-            try {
-                update(convertInfo, updateColumns, conditionColumns);
-            } catch (Exception e) {
-                IncrementUtil.saveWaiting(jobId, EventType.UPDATE.name(), ProjectConstant.INCREMENT_SYNC_TYPE.CANAL, updateColumns, conditionColumns, idValue);
-            }
+            List<CanalJobInfo> canalJobInfos = getCanalJobInfos(jobId);
+            CanalJobInfo canalJobInfo = CanalJobInfo.builder().eventType(EventType.UPDATE).updateColumns(updateColumns).conditionColumns(conditionColumns).idValue(idValue).build();
+            canalJobInfos.add(canalJobInfo);
         }
     }
 
@@ -492,196 +521,9 @@ public class CanalWorkThread extends Thread {
             if (convertInfo == null) {
                 continue;
             }
-            try {
-                delete(convertInfo, conditionColumns);
-            } catch (Exception e) {
-                IncrementUtil.saveWaiting(jobId, EventType.DELETE.name(), ProjectConstant.INCREMENT_SYNC_TYPE.CANAL, null, conditionColumns, idValue);
-            }
-        }
-    }
-
-    /**
-     * 插入
-     * @param convertInfo
-     * @param data
-     */
-    public static void insert(ConvertInfo convertInfo, Map<String, ColumnValue> data) throws SQLException {
-        DataSource dataSource = MysqlUtil.getDataSource(convertInfo.getWriteUrl(), convertInfo.getJobId());
-        if (dataSource==null) {
-            log.error("jobId:{}, 无法找到可用数据源", convertInfo.getJobId());
-            return;
-        }
-        // 数据源中的各个表
-        Map<String, ConvertInfo.ToColumn> relation = convertInfo.getTableColumns();
-        Map<String, ColumnValue> mysqlData = columnConvert(data, relation);
-        // 每个表 执行sql
-        String insertSql = MysqlUtil.doGetInsertSql(convertInfo, mysqlData.keySet());
-        int update;
-        int index = 0;
-        Connection connection = null;
-        try {
-            connection = dataSource.getConnection();
-            PreparedStatement preparedStatement = connection.prepareStatement(insertSql);
-            List<String> valueParam = new ArrayList<>();
-            setValues(index, preparedStatement, mysqlData, valueParam);
-            log.info("jobId:{}, insertSql:{}, value:{}", convertInfo.getJobId(), insertSql, valueParam);
-            update = preparedStatement.executeUpdate();
-        } catch (Exception e) {
-            log.error("columns.size:{} index:{}, error: ", mysqlData.size(), index, e);
-            throw e;
-        } finally {
-            try {
-                assert connection != null;
-                // 回收,并非关闭
-                connection.close();
-            } catch (SQLException e) {
-                log.error("close Exception", e);
-            }
-        }
-        log.info("statement.executeInsert result:{}", update);
-    }
-
-    /**
-     * 列装换
-     * @param data
-     * @param relation
-     * @return
-     */
-    private static Map<String, ColumnValue> columnConvert(Map<String, ColumnValue> data, Map<String, ConvertInfo.ToColumn> relation) {
-        // 这里使用 TreeMap
-        TreeMap<String, ColumnValue> mysqlData = new TreeMap<>();
-        for (Map.Entry<String, ConvertInfo.ToColumn> entry : relation.entrySet()) {
-            String fromColumn = entry.getKey();
-            String toColumn = entry.getValue().getName();
-            if (data.containsKey(fromColumn)) {
-                mysqlData.put(toColumn, data.get(fromColumn));
-            }
-        }
-        return mysqlData;
-    }
-
-    /**
-     * 设置值
-     * @param index
-     * @param preparedStatement
-     * @param mysqlData
-     * @param valueParam
-     * @throws SQLException
-     */
-    private static int setValues(int index, PreparedStatement preparedStatement, Map<String, ColumnValue> mysqlData, List<String> valueParam) throws SQLException {
-        ColumnValue columnValue;
-        String value;
-        for (Map.Entry<String, ColumnValue> entry : mysqlData.entrySet()) {
-            index ++;
-            columnValue = entry.getValue();
-            value = columnValue.getValue();
-            valueParam.add(value);
-            if (value==null) {
-                preparedStatement.setNull(index, Types.OTHER);
-                continue;
-            }
-            int sqlType = columnValue.getSqlType();
-            if (Types.NUMERIC == sqlType || Types.DECIMAL == sqlType) {
-                preparedStatement.setObject(index, value, columnValue.getSqlType(), columnValue.getScale());
-            } else {
-                preparedStatement.setObject(index, value, columnValue.getSqlType());
-            }
-        }
-        return index;
-    }
-
-    /**
-     * 更新
-     * @param convertInfo
-     * @param updateData
-     * @param conditionData
-     */
-    public static void update(ConvertInfo convertInfo, Map<String, ColumnValue> updateData, Map<String, ColumnValue> conditionData) throws SQLException {
-        // 数据源中的各个表
-        Map<String, ConvertInfo.ToColumn> relation = convertInfo.getTableColumns();
-
-        Map<String, ColumnValue> covertUpdateData = columnConvert(updateData, relation);
-        Map<String, ColumnValue> covertConditionData = columnConvert(conditionData, relation);
-        if (covertUpdateData.isEmpty() || covertConditionData.isEmpty()) {
-            log.info("无需更新");
-            return;
-        }
-        DataSource dataSource = MysqlUtil.getDataSource(convertInfo.getWriteUrl(), convertInfo.getJobId());
-        if (dataSource==null) {
-            log.error("jobId:{}, 无法找到可用数据源", convertInfo.getJobId());
-            return;
-        }
-        // 每个表 执行sql
-        String conditionSql = MysqlUtil.doGetConditionSql(convertInfo, covertConditionData.keySet());
-        String updateSql = MysqlUtil.doGetUpdateSql(convertInfo.getTableName(), covertUpdateData.keySet(), conditionSql);
-        int update;
-        int index = 0;
-        Connection connection = null;
-        try {
-            connection = dataSource.getConnection();
-            PreparedStatement preparedStatement = connection.prepareStatement(updateSql);
-            List<String> valueParam = new ArrayList<>();
-            index = setValues(index, preparedStatement, covertUpdateData, valueParam);
-            List<String> condition = new ArrayList<>();
-            setValues(index, preparedStatement, covertConditionData, condition);
-            log.info("jobId:{}, updateSql:{}, value:{}, condition:{}", convertInfo.getJobId(), updateSql, valueParam, condition);
-            update = preparedStatement.executeUpdate();
-        } catch (Exception e) {
-            log.error("columns.size:{} index:{}, error: ", covertUpdateData.size(), index, e);
-            throw e;
-        } finally {
-            try {
-                assert connection != null;
-                // 回收,并非关闭
-                connection.close();
-            } catch (SQLException e) {
-                log.error("close Exception", e);
-            }
-        }
-        log.info("statement.executeUpdate result:{}", update);
-    }
-
-
-    /**
-     * 更新
-     * @param convertInfo
-     * @param conditionData
-     */
-    public static void delete(ConvertInfo convertInfo, Map<String, ColumnValue> conditionData) throws SQLException {
-        // 数据源中的各个表
-        Map<String, ConvertInfo.ToColumn> relation = convertInfo.getTableColumns();
-        Map<String, ColumnValue> covertConditionData = columnConvert(conditionData, relation);
-        if (covertConditionData.isEmpty()) {
-            log.info("没有主键进行删除");
-            return;
-        }
-        DataSource dataSource = MysqlUtil.getDataSource(convertInfo.getWriteUrl(), convertInfo.getJobId());
-        if (dataSource==null) {
-            log.error("jobId:{}, 无法找到可用数据源", convertInfo.getJobId());
-            return;
-        }
-        // 每个表 执行sql
-        String deleteSql = MysqlUtil.doGetDeleteSql(convertInfo, covertConditionData.keySet());
-        int index = 0;
-        Connection connection = null;
-        List<String> condition = new ArrayList<>();
-        try {
-            connection = dataSource.getConnection();
-            PreparedStatement preparedStatement = connection.prepareStatement(deleteSql);
-            setValues(index, preparedStatement, covertConditionData, condition);
-            log.info("jobId:{}, deleteSql:{}, condition:{}", convertInfo.getJobId(), deleteSql, condition);
-            int update = preparedStatement.executeUpdate();
-            log.info("affected row:{}", update);
-        } catch (Exception e) {
-            log.error("condition:{}, delete error:{}", condition, e);
-            throw e;
-        } finally {
-            try {
-                assert connection != null;
-                connection.close();
-            } catch (SQLException e) {
-                log.error("close Exception", e);
-            }
+            List<CanalJobInfo> canalJobInfos = getCanalJobInfos(jobId);
+            CanalJobInfo canalJobInfo = CanalJobInfo.builder().eventType(EventType.DELETE).conditionColumns(conditionColumns).idValue(idValue).build();
+            canalJobInfos.add(canalJobInfo);
         }
     }
 }

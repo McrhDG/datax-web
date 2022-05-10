@@ -1,12 +1,13 @@
 package com.wugui.datax.admin.mq;
 
+import com.wugui.datax.admin.canal.CanalRabbitListener;
 import com.wugui.datax.admin.constants.ProjectConstant;
 import com.wugui.datax.admin.core.conf.JobAdminConfig;
+import com.wugui.datax.admin.mongo.MongoRabbitListener;
 import com.wugui.datax.admin.util.SpringContextHolder;
-import org.springframework.amqp.core.Binding;
-import org.springframework.amqp.core.BindingBuilder;
-import org.springframework.amqp.core.Queue;
-import org.springframework.amqp.core.TopicExchange;
+import org.springframework.amqp.core.*;
+import org.springframework.amqp.rabbit.connection.AbstractConnectionFactory;
+import org.springframework.amqp.rabbit.listener.DirectMessageListenerContainer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.DependsOn;
@@ -39,4 +40,25 @@ public class RabbitConfig {
         return BindingBuilder.bind(endpointSyncQueue()).to(SpringContextHolder.getBean(TopicExchange.class)).with(ProjectConstant.ENDPOINT_SYNC_ROUTING_KEY);
     }
 
+    @Bean
+    public DirectMessageListenerContainer canalMessageListenerContainer(AbstractConnectionFactory connectionFactory){
+        DirectMessageListenerContainer container = new DirectMessageListenerContainer();
+        container.setConnectionFactory(connectionFactory);
+        container.setAcknowledgeMode(AcknowledgeMode.MANUAL);
+        container.setMessageListener(new CanalRabbitListener());
+        container.setPrefetchCount(1);
+        container.setConsumersPerQueue(1);
+        return container;
+    }
+
+    @Bean
+    public DirectMessageListenerContainer mongoMessageListenerContainer(AbstractConnectionFactory connectionFactory){
+        DirectMessageListenerContainer container = new DirectMessageListenerContainer();
+        container.setConnectionFactory(connectionFactory);
+        container.setAcknowledgeMode(AcknowledgeMode.MANUAL);
+        container.setMessageListener(new MongoRabbitListener());
+        container.setPrefetchCount(1);
+        container.setConsumersPerQueue(1);
+        return container;
+    }
 }

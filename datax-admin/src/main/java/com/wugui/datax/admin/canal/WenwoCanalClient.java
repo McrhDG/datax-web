@@ -1,10 +1,12 @@
 package com.wugui.datax.admin.canal;
 
 import cn.hutool.core.collection.CollectionUtil;
+import com.wenwo.cloud.message.driven.producer.service.MessageProducerService;
 import com.wugui.datax.admin.constants.ProjectConstant;
 import com.wugui.datax.admin.core.util.IncrementUtil;
 import com.wugui.datax.admin.entity.JobInfo;
 import com.wugui.datax.admin.mapper.JobInfoMapper;
+import com.wugui.datax.admin.util.SpringContextHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.DependsOn;
@@ -28,7 +30,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 @Component
 @Slf4j
-@DependsOn({"springContextHolder", "jobAdminConfig"})
+@DependsOn({"springContextHolder", "jobAdminConfig", "amqpAdmin"})
 public class WenwoCanalClient {
 
     @Resource
@@ -39,7 +41,6 @@ public class WenwoCanalClient {
 
     @Autowired
     private CanalInstanceConfig canalInstanceConfig;
-
 
     /**
      * 工作线程
@@ -71,6 +72,7 @@ public class WenwoCanalClient {
                 if (CollectionUtil.isNotEmpty(initCanalJobs)) {
                     for (JobInfo initCanalJob : initCanalJobs) {
                         IncrementUtil.initCanal(initCanalJob, true);
+                        IncrementUtil.addQueue(initCanalJob);
                     }
                 }
             }
@@ -115,7 +117,7 @@ public class WenwoCanalClient {
     public void addTask(String address) {
         if(!workThreads.containsKey(address)) {
             //启动canal消费线程
-            CanalWorkThread canalWorkThread = new CanalWorkThread(address);
+            CanalWorkThread canalWorkThread = new CanalWorkThread(address, SpringContextHolder.getBean(MessageProducerService.class));
             canalExecutor.execute(canalWorkThread);
             workThreads.put(address, canalWorkThread);
             log.info("加入canal监听任务address:{}", address);

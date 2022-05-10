@@ -66,7 +66,7 @@ public class ProjectConstant {
     /**
      * mongo 唯一表缓存key
      */
-    public static final String REDIS_UNION_COLLECTION__KEY_FORMAT = "datax.admin.union.collection.%s_%s_%s";
+    public static final String REDIS_UNION_COLLECTION_KEY_FORMAT = "datax.admin.union.collection.%s_%s_%s";
 
     /**
      * canal增量同步任务名
@@ -114,4 +114,19 @@ public class ProjectConstant {
      * 增量等待锁
      */
     public static final String INCREMENT_WAIT_JOB_LOCK = "increment_wait_job_lock_%d";
+
+    /**
+     * canal队列
+     */
+    public static final String CANAL_JOB_QUEUE_FORMAT = "datax_admin_canal_job_queue_%d";
+
+    /**
+     * mongo队列
+     */
+    public static final String MONGO_JOB_QUEUE_FORMAT = "datax_admin_mongo_job_queue_%d";
+
+    /**
+     * 打印执行总数的条数
+     */
+    public final static Integer PRINT_EXECUTE_BATCH_SIZE = 10;
 }

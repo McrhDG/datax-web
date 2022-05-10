@@ -49,6 +49,11 @@ public class MysqlUtil {
     private static final Map<String, DruidDataSource> DATASOURCE_MAP = new ConcurrentHashMap<>();
 
 
+    private static final String REWRITE_BATCHED_STATEMENTS = "rewriteBatchedStatements";
+
+    private static final String ALLOW_MULTI_QUERIES = "allowMultiQueries";
+
+
     /**
      *
      * @param jdbcUrl
@@ -111,6 +116,12 @@ public class MysqlUtil {
         //添加数据源
         String writerJdbcUrl = writerConnectionJsonObj.getString("jdbcUrl");
         String writerUrl = MysqlUtil.getMysqlUrl(writerJdbcUrl);
+        if (!writerJdbcUrl.contains(REWRITE_BATCHED_STATEMENTS)){
+            writerJdbcUrl += (writerJdbcUrl.contains("?")?"&":"?") + "rewriteBatchedStatements=true";
+        }
+        if (!writerJdbcUrl.contains(ALLOW_MULTI_QUERIES)){
+            writerJdbcUrl += (writerJdbcUrl.contains("?")?"&":"?") + "allowMultiQueries=true";
+        }
         DruidDataSource druidDataSource = new DruidDataSource();
         druidDataSource.setUrl(writerJdbcUrl);
         druidDataSource.setUsername(username);
@@ -138,83 +149,22 @@ public class MysqlUtil {
         return druidDataSource;
     }
 
-    /**
-     *
-     * @param convertInfo
-     * @param columnNames
-     * @return
-     */
-    public static String doGetInsertSql(ConvertInfo convertInfo, Set<String> columnNames) {
-        String insertSql = convertInfo.getInsertSql();
-        if (StringUtils.isBlank(insertSql)) {
-            String tableName = convertInfo.getTableName();
-            StringBuilder insertBuilder = new StringBuilder("INSERT IGNORE `");
-            insertBuilder.append(tableName);
-            insertBuilder.append("` (");
-            StringBuilder placeholders = new StringBuilder(" VALUES(");
-            for (String column : columnNames) {
-                insertBuilder.append("`").append(column).append("`").append(",");
-                placeholders.append("?").append(",");
-            }
-            insertBuilder.delete(insertBuilder.length() - 1, insertBuilder.length()).append(")");
-            placeholders.delete(placeholders.length() - 1, placeholders.length()).append(")");
-            insertSql = insertBuilder.append(placeholders).toString();
-            convertInfo.setInsertSql(insertSql);
-        }
-        return insertSql;
-    }
-
-    /**
-     * 获取更新语句
-     * @param tableName
-     * @param columnNames
-     * @param conditionSql
-     * @return
-     */
-    public static String doGetUpdateSql(String tableName, Set<String> columnNames, String conditionSql) {
-        String updateSql;
-        StringBuilder updateBuilder = new StringBuilder("UPDATE `" + tableName + "` SET ");
-        for (String column : columnNames) {
-            updateBuilder.append("`").append(column).append("`")
-                    .append("=").append("?").append(",");
-        }
-        updateBuilder.delete(updateBuilder.length() - 1, updateBuilder.length());
-        updateSql = updateBuilder.append(conditionSql).toString();
-        return updateSql;
-    }
 
     /**
      * 获取条件语句
      * @param convertInfo
-     * @param columnNames
+     * @param conditionColumns
      * @return
      */
-    public static String doGetConditionSql(ConvertInfo convertInfo, Set<String> columnNames) {
+    public static String doGetConditionSql(ConvertInfo convertInfo, Set<String> conditionColumns) {
         String conditionSql = convertInfo.getConditionSql();
         if(StringUtils.isBlank(conditionSql)) {
             StringBuilder conditionBuilder = new StringBuilder(" WHERE ");
-            for (String column : columnNames) {
-                conditionBuilder.append("`").append(column).append("`").append("=").append("?").append(" AND");
-            }
+            conditionColumns.forEach(column -> conditionBuilder.append("`").append(column).append("`").append("=").append("%s").append(" AND"));
             conditionBuilder.delete(conditionBuilder.length() - 4, conditionBuilder.length());
             conditionSql = conditionBuilder.toString();
             convertInfo.setConditionSql(conditionSql);
         }
         return conditionSql;
-    }
-
-    /**
-     * 获取条件语句
-     * @param convertInfo
-     * @param columnNames
-     * @return
-     */
-    public static String doGetDeleteSql(ConvertInfo convertInfo, Set<String> columnNames) {
-        String deleteSql = convertInfo.getDeleteSql();
-        if (StringUtils.isBlank(deleteSql)) {
-            deleteSql = "DELETE FROM `" + convertInfo.getTableName() + "`" + doGetConditionSql(convertInfo, columnNames);
-            convertInfo.setDeleteSql(deleteSql);
-        }
-        return deleteSql;
     }
 }

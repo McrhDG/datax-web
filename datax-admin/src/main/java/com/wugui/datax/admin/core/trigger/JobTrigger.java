@@ -60,6 +60,8 @@ public class JobTrigger {
         //增量数据处理
         IncrementUtil.initIncrementData(jobInfo, false);
 
+        IncrementUtil.addQueue(jobInfo);
+
         //同步到其他端点
         MessageProducerService messageProducerService = JobAdminConfig.getAdminConfig().getMessageProducerService();
         messageProducerService.sendMsg(jobInfo, ProjectConstant.ENDPOINT_SYNC_ROUTING_KEY, message->{
