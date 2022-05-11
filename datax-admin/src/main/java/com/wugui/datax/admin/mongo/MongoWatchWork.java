@@ -1,6 +1,5 @@
 package com.wugui.datax.admin.mongo;
 
-import com.wenwo.cloud.message.driven.producer.service.MessageProducerService;
 import com.wugui.datax.admin.constants.ProjectConstant;
 import com.wugui.datax.admin.core.util.IncrementUtil;
 import com.wugui.datax.admin.entity.JobInfo;
@@ -8,7 +7,6 @@ import com.wugui.datax.admin.mapper.JobInfoMapper;
 import com.wugui.datax.admin.mongo.ha.ConsistentHashSingleton;
 import com.wugui.datax.admin.mongo.ha.ZkWatchNodeHA;
 import com.wugui.datax.admin.util.RedisLock;
-import com.wugui.datax.admin.util.SpringContextHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.DependsOn;
@@ -39,7 +37,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 @Slf4j
 @Component
-@DependsOn({"zkWatchNodeHA", "springContextHolder", "jobAdminConfig", "amqpAdmin"})
+@DependsOn({"zkWatchNodeHA", "springContextHolder", "jobAdminConfig"})
 public class MongoWatchWork {
 
     @Resource
@@ -93,7 +91,6 @@ public class MongoWatchWork {
             }
             for (JobInfo initMongoWatchJob : initMongoWatchJobs) {
                 IncrementUtil.initMongoWatch(initMongoWatchJob, true);
-                IncrementUtil.addQueue(initMongoWatchJob);
             }
         } else {
             log.info("新老配置合并开始");
@@ -130,7 +127,7 @@ public class MongoWatchWork {
             try {
                 if (!workThreads.containsKey(unionTable) && ConsistentHashSingleton.instance().addSelfTask(unionTable)) {
                     String[] unionTableInfo = unionTable.split("_");
-                    MongoWatchWorkThread thread = new MongoWatchWorkThread(unionTableInfo[0], unionTableInfo[1], unionTableInfo[2], SpringContextHolder.getBean(MessageProducerService.class));
+                    MongoWatchWorkThread thread = new MongoWatchWorkThread(unionTableInfo[0], unionTableInfo[1], unionTableInfo[2]);
                     workThreads.put(unionTable, thread);
                     mongoWatchExecutor.execute(thread);
                     log.info("加入监听任务address:{}, database:{}, collection:{}", unionTableInfo[0], unionTableInfo[1], unionTableInfo[2]);

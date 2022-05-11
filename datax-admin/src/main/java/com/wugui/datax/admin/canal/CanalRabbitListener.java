@@ -215,7 +215,7 @@ public class CanalRabbitListener implements ChannelAwareMessageListener {
 		covertUpdateData.forEach((column, columnValue) -> updateBuilder.append("`").append(column).append("`")
 				.append("=").append(getValue(columnValue)).append(","));
 		updateBuilder.delete(updateBuilder.length() - 1, updateBuilder.length());
-		String conditionSql = MysqlUtil.doGetConditionSql(convertInfo, covertConditionData.keySet());
+		String conditionSql = doGetConditionSql(convertInfo, covertConditionData.keySet());
 		List<Object> args = new ArrayList<>();
 		for (ColumnValue columnValue : conditionData.values()) {
 			args.add(getValue(columnValue));
@@ -223,6 +223,24 @@ public class CanalRabbitListener implements ChannelAwareMessageListener {
 		conditionSql = String.format(conditionSql, args.toArray());
 		updateSql = updateBuilder.append(conditionSql).toString();
 		return updateSql;
+	}
+
+	/**
+	 * 获取条件语句
+	 * @param convertInfo
+	 * @param conditionColumns
+	 * @return
+	 */
+	private String doGetConditionSql(ConvertInfo convertInfo, Set<String> conditionColumns) {
+		String conditionSql = convertInfo.getConditionSql();
+		if(StringUtils.isBlank(conditionSql)) {
+			StringBuilder conditionBuilder = new StringBuilder(" WHERE ");
+			conditionColumns.forEach(column -> conditionBuilder.append("`").append(column).append("`").append("=").append("%s").append(" AND"));
+			conditionBuilder.delete(conditionBuilder.length() - 4, conditionBuilder.length());
+			conditionSql = conditionBuilder.toString();
+			convertInfo.setConditionSql(conditionSql);
+		}
+		return conditionSql;
 	}
 
 	/**
@@ -240,7 +258,7 @@ public class CanalRabbitListener implements ChannelAwareMessageListener {
 			return null;
 		}
 		if (StringUtils.isBlank(deleteSql)) {
-			deleteSql = "DELETE FROM `" + convertInfo.getTableName() + "`" + MysqlUtil.doGetConditionSql(convertInfo, covertConditionData.keySet());
+			deleteSql = "DELETE FROM `" + convertInfo.getTableName() + "`" + doGetConditionSql(convertInfo, covertConditionData.keySet());
 			convertInfo.setDeleteSql(deleteSql);
 		}
 		List<Object> args = new ArrayList<>();

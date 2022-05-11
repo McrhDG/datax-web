@@ -5,14 +5,11 @@ import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.wugui.datax.admin.constants.ProjectConstant;
 import com.wugui.datax.admin.core.util.IncrementUtil;
-import com.wugui.datax.admin.entity.ConvertInfo;
 import com.wugui.datax.admin.entity.JobInfo;
 import com.wugui.datax.admin.mapper.JobInfoMapper;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -147,24 +144,5 @@ public class MysqlUtil {
             druidDataSource = addDataSource(jobInfo);
         }
         return druidDataSource;
-    }
-
-
-    /**
-     * 获取条件语句
-     * @param convertInfo
-     * @param conditionColumns
-     * @return
-     */
-    public static String doGetConditionSql(ConvertInfo convertInfo, Set<String> conditionColumns) {
-        String conditionSql = convertInfo.getConditionSql();
-        if(StringUtils.isBlank(conditionSql)) {
-            StringBuilder conditionBuilder = new StringBuilder(" WHERE ");
-            conditionColumns.forEach(column -> conditionBuilder.append("`").append(column).append("`").append("=").append("%s").append(" AND"));
-            conditionBuilder.delete(conditionBuilder.length() - 4, conditionBuilder.length());
-            conditionSql = conditionBuilder.toString();
-            convertInfo.setConditionSql(conditionSql);
-        }
-        return conditionSql;
     }
 }

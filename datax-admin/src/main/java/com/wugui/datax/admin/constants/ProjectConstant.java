@@ -121,11 +121,6 @@ public class ProjectConstant {
     public static final String CANAL_JOB_QUEUE_FORMAT = "datax_admin_canal_job_queue_%d";
 
     /**
-     * mongo队列
-     */
-    public static final String MONGO_JOB_QUEUE_FORMAT = "datax_admin_mongo_job_queue_%d";
-
-    /**
      * 打印执行总数的条数
      */
     public final static Integer PRINT_EXECUTE_BATCH_SIZE = 10;

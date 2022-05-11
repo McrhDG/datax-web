@@ -160,10 +160,10 @@ public class IncrementUtil {
      * @param jobInfo
      */
     public static void addQueue(JobInfo jobInfo) {
-        if (jobInfo==null || StringUtils.isBlank(jobInfo.getIncrementSyncType())) {
+        if (jobInfo==null || StringUtils.isBlank(jobInfo.getIncrementSyncType()) || !ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(jobInfo.getIncrementSyncType())) {
             return;
         }
-        String queueName = String.format((ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(jobInfo.getIncrementSyncType())?ProjectConstant.CANAL_JOB_QUEUE_FORMAT:ProjectConstant.MONGO_JOB_QUEUE_FORMAT), jobInfo.getId());
+        String queueName = String.format(ProjectConstant.CANAL_JOB_QUEUE_FORMAT, jobInfo.getId());
         RabbitAdmin rabbitAdmin = SpringContextHolder.getBean(RabbitAdmin.class);
         QueueInformation queueInfo = rabbitAdmin.getQueueInfo(queueName);
         if (queueInfo==null) {
@@ -174,12 +174,7 @@ public class IncrementUtil {
             Binding binding = BindingBuilder.bind(queue).to(topicExchange).with(String.valueOf(jobInfo.getId()));
             rabbitAdmin.declareBinding(binding);
         }
-        DirectMessageListenerContainer container;
-        if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(jobInfo.getIncrementSyncType())) {
-            container = SpringContextHolder.getBean("canalMessageListenerContainer");
-        } else {
-            container = SpringContextHolder.getBean("mongoMessageListenerContainer");
-        }
+        DirectMessageListenerContainer container = SpringContextHolder.getBean("canalMessageListenerContainer");
         container.addQueueNames(queueName);
     }
 
@@ -481,16 +476,9 @@ public class IncrementUtil {
      */
     private static void removeMessageListenerContainer(JobInfo jobInfo) {
         //删除队列
-        if (jobInfo.getIncrementSyncType()!=null) {
-            DirectMessageListenerContainer container;
-            String queueName;
-            if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(jobInfo.getIncrementSyncType())) {
-                queueName = String.format(ProjectConstant.CANAL_JOB_QUEUE_FORMAT, jobInfo.getId());
-                container = SpringContextHolder.getBean("canalMessageListenerContainer");
-            } else {
-                queueName = String.format(ProjectConstant.MONGO_JOB_QUEUE_FORMAT, jobInfo.getId());
-                container = SpringContextHolder.getBean("mongoMessageListenerContainer");
-            }
+        if (jobInfo.getIncrementSyncType()!=null && ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(jobInfo.getIncrementSyncType())) {
+            DirectMessageListenerContainer container = SpringContextHolder.getBean("canalMessageListenerContainer");
+            String queueName = String.format(ProjectConstant.CANAL_JOB_QUEUE_FORMAT, jobInfo.getId());
             container.removeQueueNames(queueName);
             RabbitAdmin rabbitAdmin = SpringContextHolder.getBean(RabbitAdmin.class);
             rabbitAdmin.deleteQueue(queueName);

@@ -118,7 +118,7 @@ public class CanalWorkThread extends Thread {
                     return;
                 }
             } catch (Throwable e) {
-                log.error("process error!", e);
+                log.error("process error:", e);
                 if (e.getCause() instanceof InterruptedException) {
                     return;
                 }
@@ -128,7 +128,7 @@ public class CanalWorkThread extends Thread {
                         connector.rollback();
                     }
                 } catch (Throwable canalClientException) {
-                    log.error("process error!", e);
+                    log.error("CanalClientException:", e);
                 }
                 try {
                     if (retry < InstanceFactory.getConnectionRetry(address)) {

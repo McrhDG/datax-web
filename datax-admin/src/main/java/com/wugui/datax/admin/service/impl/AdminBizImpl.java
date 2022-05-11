@@ -3,7 +3,6 @@ package com.wugui.datax.admin.service.impl;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.TypeReference;
 import com.alibaba.otter.canal.protocol.CanalEntry;
-import com.mongodb.client.model.changestream.OperationType;
 import com.wenwo.cloud.message.driven.producer.service.MessageProducerService;
 import com.wugui.datatx.core.biz.AdminBiz;
 import com.wugui.datatx.core.biz.model.HandleCallbackParam;
@@ -29,7 +28,7 @@ import com.wugui.datax.admin.mapper.IncrementSyncWaitingMapper;
 import com.wugui.datax.admin.mapper.JobInfoMapper;
 import com.wugui.datax.admin.mapper.JobLogMapper;
 import com.wugui.datax.admin.mapper.JobRegistryMapper;
-import com.wugui.datax.admin.mongo.MongoJobInfo;
+import com.wugui.datax.admin.mongo.MongoWatchWorkThread;
 import com.wugui.datax.admin.mq.RunningJob;
 import com.wugui.datax.admin.util.RedisLock;
 import org.slf4j.Logger;
@@ -95,6 +94,118 @@ public class AdminBizImpl implements AdminBiz {
         }
     }
 
+    /**
+     * 执行增量同步等待任务
+     * @param jobId
+     */
+    private void executeIncrementSyncWaiting(int jobId) {
+        if (IncrementUtil.isRunningJob(jobId)) {
+            return;
+        }
+        String lock = String.format(ProjectConstant.INCREMENT_WAIT_JOB_LOCK, jobId);
+        if (redisLock.tryLock(lock, ProjectConstant.LOCK_TIMEOUT_300)) {
+            try {
+                List<IncrementSyncWaiting> incrementSyncWaitings = incrementSyncWaitingMapper.loadByJobId(jobId);
+                if (CollectionUtils.isEmpty(incrementSyncWaitings)) {
+                    return;
+                }
+                ConvertInfo convertInfo = IncrementUtil.getConvertInfo(jobId);
+                if (convertInfo == null) {
+                    logger.info("jobId:{}, 不存在读写装换关系", jobId);
+                    incrementSyncWaitingMapper.deleteByJobId(jobId);
+                    return;
+                }
+                String type = incrementSyncWaitings.get(0).getType();
+                if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(type)) {
+                    executeCanalIncrementSyncWaiting(jobId, incrementSyncWaitings);
+                } else if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
+                    executeMongoIncrementSyncWaiting(convertInfo, incrementSyncWaitings);
+                }
+            } finally {
+                redisLock.unlock(lock);
+            }
+        }
+    }
+
+    /**
+     * 执行增量同步等待任务
+     * @param jobId
+     * @param incrementSyncWaitings
+     */
+    private void executeCanalIncrementSyncWaiting(Integer jobId, List<IncrementSyncWaiting> incrementSyncWaitings) {
+        List<CanalJobInfo> canalJobInfos = new ArrayList<>();
+        for (IncrementSyncWaiting incrementSyncWaiting : incrementSyncWaitings) {
+            String operationType = incrementSyncWaiting.getOperationType();
+            String content = incrementSyncWaiting.getContent();
+            String condition = incrementSyncWaiting.getCondition();
+            CanalJobInfo canalJobInfo;
+            Map<String, ColumnValue> updateMap;
+            Map<String, ColumnValue> conditionMap;
+            switch (operationType) {
+                case "INSERT":
+                    updateMap = JSON.parseObject(content, new TypeReference<Map<String, ColumnValue>>() {});
+                    canalJobInfo = CanalJobInfo.builder().eventType(CanalEntry.EventType.INSERT).updateColumns(updateMap).build();
+                    canalJobInfos.add(canalJobInfo);
+                    break;
+                case "UPDATE":
+                case "REPLACE":
+                    updateMap = JSON.parseObject(content, new TypeReference<Map<String, ColumnValue>>() {});
+                    conditionMap = JSON.parseObject(condition, new TypeReference<Map<String, ColumnValue>>() {});
+                    canalJobInfo = CanalJobInfo.builder().eventType(CanalEntry.EventType.UPDATE).updateColumns(updateMap).conditionColumns(conditionMap).build();
+                    canalJobInfos.add(canalJobInfo);
+                    break;
+                case "DELETE":
+                    conditionMap = JSON.parseObject(condition, new TypeReference<Map<String, ColumnValue>>() {});
+                    canalJobInfo = CanalJobInfo.builder().eventType(CanalEntry.EventType.DELETE).conditionColumns(conditionMap).build();
+                    canalJobInfos.add(canalJobInfo);
+                    break;
+                default:
+                    logger.warn("operation:{} not support, jobId:{}", operationType, jobId);
+            }
+        }
+        if (!canalJobInfos.isEmpty()) {
+            messageProducerService.sendMsg(canalJobInfos, String.valueOf(jobId));
+        }
+        incrementSyncWaitingMapper.deleteByJobId(jobId);
+    }
+
+    /**
+     * 执行增量同步等待任务
+     * @param convertInfo
+     * @param incrementSyncWaitings
+     */
+    private void executeMongoIncrementSyncWaiting(ConvertInfo convertInfo, List<IncrementSyncWaiting> incrementSyncWaitings) {
+        Integer jobId = convertInfo.getJobId();
+        for (IncrementSyncWaiting incrementSyncWaiting : incrementSyncWaitings) {
+            String operationType = incrementSyncWaiting.getOperationType();
+            String content = incrementSyncWaiting.getContent();
+            String condition = incrementSyncWaiting.getCondition();
+            String idValue = incrementSyncWaiting.getIdValue();
+            Map<String, Object> data;
+            try {
+                switch (operationType) {
+                    case "INSERT":
+                        data = JSON.parseObject(content);
+                        MongoWatchWorkThread.insert(convertInfo, data);
+                        break;
+                    case "UPDATE":
+                    case "REPLACE":
+                        data = JSON.parseObject(content);
+                        MongoWatchWorkThread.update(convertInfo, data, condition);
+                        break;
+                    case "DELETE":
+                        MongoWatchWorkThread.delete(convertInfo, condition);
+                        break;
+                    default:
+                        logger.warn("operation:{} not support, jobId:{}", operationType, jobId);
+                }
+                incrementSyncWaitingMapper.deleteByOperation(jobId, idValue, operationType);
+            } catch (Exception e) {
+                logger.error("jobId:{},idValue:{}, execute error:{}", jobId, idValue, e.getMessage());
+            }
+        }
+    }
+
     @Override
     public ReturnT<String> callback(List<HandleCallbackParam> callbackParamList) {
         for (HandleCallbackParam handleCallbackParam : callbackParamList) {
@@ -121,93 +232,15 @@ public class AdminBizImpl implements AdminBiz {
         return result > 0 ? ReturnT.FAIL : ReturnT.SUCCESS;
     }
 
-    /**
-     * 执行增量同步等待任务
-     * @param jobId
-     */
-    private void executeIncrementSyncWaiting(int jobId) {
-        if (IncrementUtil.isRunningJob(jobId)) {
-            return;
-        }
-        String lock = String.format(ProjectConstant.INCREMENT_WAIT_JOB_LOCK, jobId);
-        if (redisLock.tryLock(lock, ProjectConstant.LOCK_TIMEOUT_300)) {
-            try {
-                List<IncrementSyncWaiting> incrementSyncWaitings = incrementSyncWaitingMapper.loadByJobId(jobId);
-                if (CollectionUtils.isEmpty(incrementSyncWaitings)) {
-                    return;
-                }
-                ConvertInfo convertInfo = IncrementUtil.getConvertInfo(jobId);
-                if (convertInfo == null) {
-                    logger.info("jobId:{}, 不存在读写装换关系", jobId);
-                    incrementSyncWaitingMapper.deleteByJobId(jobId);
-                    return;
-                }
-                String type = incrementSyncWaitings.get(0).getType();
-                List<CanalJobInfo> canalJobInfos = new ArrayList<>();
-                List<MongoJobInfo> mongoJobInfos = new ArrayList<>();
-                for (IncrementSyncWaiting incrementSyncWaiting : incrementSyncWaitings) {
-                    String operationType = incrementSyncWaiting.getOperationType();
-                    String content = incrementSyncWaiting.getContent();
-                    String condition = incrementSyncWaiting.getCondition();
-                    switch (operationType) {
-                        case "INSERT":
-                            if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
-                                Map<String, Object> data = JSON.parseObject(content);
-                                MongoJobInfo mongoJobInfo = MongoJobInfo.builder().eventType(OperationType.INSERT).updateColumns(data).build();
-                                mongoJobInfos.add(mongoJobInfo);
-                            } else if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(type)) {
-                                Map<String, ColumnValue> insertMap = JSON.parseObject(content, new TypeReference<Map<String, ColumnValue>>() {});
-                                CanalJobInfo canalJobInfo = CanalJobInfo.builder().eventType(CanalEntry.EventType.INSERT).updateColumns(insertMap).build();
-                                canalJobInfos.add(canalJobInfo);
-                            }
-                            break;
-                        case "UPDATE":
-                        case "REPLACE":
-                            if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
-                                Map<String, Object> data = JSON.parseObject(content);
-                                MongoJobInfo mongoJobInfo = MongoJobInfo.builder().eventType(OperationType.UPDATE).updateColumns(data).id(condition).build();
-                                mongoJobInfos.add(mongoJobInfo);
-                            } else if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(type)) {
-                                Map<String, ColumnValue> updateMap = JSON.parseObject(content, new TypeReference<Map<String, ColumnValue>>() {});
-                                Map<String, ColumnValue> conditionMap = JSON.parseObject(condition, new TypeReference<Map<String, ColumnValue>>() {});
-                                CanalJobInfo canalJobInfo = CanalJobInfo.builder().eventType(CanalEntry.EventType.UPDATE).updateColumns(updateMap).conditionColumns(conditionMap).build();
-                                canalJobInfos.add(canalJobInfo);
-                            }
-                            break;
-                        case "DELETE":
-                            if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type)) {
-                                MongoJobInfo mongoJobInfo = MongoJobInfo.builder().eventType(OperationType.DELETE).id(condition).build();
-                                mongoJobInfos.add(mongoJobInfo);
-                            } else if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(type)) {
-                                Map<String, ColumnValue> conditionMap = JSON.parseObject(condition, new TypeReference<Map<String, ColumnValue>>() {});
-                                CanalJobInfo canalJobInfo = CanalJobInfo.builder().eventType(CanalEntry.EventType.DELETE).conditionColumns(conditionMap).build();
-                                canalJobInfos.add(canalJobInfo);
-                            }
-                            break;
-                        default:
-                            logger.info("operation:{} not support, jobId:{}", operationType, jobId);
-                    }
-                }
-                if (ProjectConstant.INCREMENT_SYNC_TYPE.CANAL.val().equals(type) && !canalJobInfos.isEmpty()) {
-                    messageProducerService.sendMsg(canalJobInfos, String.valueOf(jobId));
-                } else if (ProjectConstant.INCREMENT_SYNC_TYPE.MONGO_WATCH.val().equals(type) && !mongoJobInfos.isEmpty()) {
-                    messageProducerService.sendMsg(mongoJobInfos, String.valueOf(jobId));
-                }
-                incrementSyncWaitingMapper.deleteByJobId(jobId);
-            } finally {
-                redisLock.unlock(lock);
-            }
-        }
-    }
-
     private ReturnT<String> callback(HandleCallbackParam handleCallbackParam) {
         // valid log item
         JobLog log = jobLogMapper.load(handleCallbackParam.getLogId());
         if (log == null) {
-            return new ReturnT<String>(ReturnT.FAIL_CODE, "log item not found.");
+            return new ReturnT<>(ReturnT.FAIL_CODE, "log item not found.");
         }
         if (log.getHandleCode() > 0) {
-            return new ReturnT<String>(ReturnT.FAIL_CODE, "log repeate callback.");     // avoid repeat callback, trigger child job etc
+            // avoid repeat callback, trigger child job etc
+            return new ReturnT<>(ReturnT.FAIL_CODE, "log repeate callback.");
         }
 
         //执行等待增量任务
@@ -223,35 +256,37 @@ public class AdminBizImpl implements AdminBiz {
         if (IJobHandler.SUCCESS.getCode() == resultCode) {
 
             JobInfo jobInfo = jobInfoMapper.loadById(log.getJobId());
+            if (jobInfo!=null) {
 
-            updateIncrementParam(log, jobInfo.getIncrementType());
+                updateIncrementParam(log, jobInfo.getIncrementType());
 
-            if (jobInfo != null && jobInfo.getChildJobId() != null && jobInfo.getChildJobId().trim().length() > 0) {
-                callbackMsg = "<br><br><span style=\"color:#00c0ef;\" > >>>>>>>>>>>" + I18nUtil.getString("jobconf_trigger_child_run") + "<<<<<<<<<<< </span><br>";
+                if (jobInfo.getChildJobId() != null && jobInfo.getChildJobId().trim().length() > 0) {
+                    callbackMsg = "<br><br><span style=\"color:#00c0ef;\" > >>>>>>>>>>>" + I18nUtil.getString("jobconf_trigger_child_run") + "<<<<<<<<<<< </span><br>";
 
-                String[] childJobIds = jobInfo.getChildJobId().split(",");
-                for (int i = 0; i < childJobIds.length; i++) {
-                    int childJobId = (childJobIds[i] != null && childJobIds[i].trim().length() > 0 && isNumeric(childJobIds[i])) ? Integer.valueOf(childJobIds[i]) : -1;
-                    if (childJobId > 0) {
+                    String[] childJobIds = jobInfo.getChildJobId().split(",");
+                    for (int i = 0; i < childJobIds.length; i++) {
+                        int childJobId = (childJobIds[i] != null && childJobIds[i].trim().length() > 0 && isNumeric(childJobIds[i])) ? Integer.valueOf(childJobIds[i]) : -1;
+                        if (childJobId > 0) {
 
-                        JobTriggerPoolHelper.trigger(childJobId, TriggerTypeEnum.PARENT, -1, null, null);
-                        ReturnT<String> triggerChildResult = ReturnT.SUCCESS;
+                            JobTriggerPoolHelper.trigger(childJobId, TriggerTypeEnum.PARENT, -1, null, null);
+                            ReturnT<String> triggerChildResult = ReturnT.SUCCESS;
 
-                        // add msg
-                        callbackMsg += MessageFormat.format(I18nUtil.getString("jobconf_callback_child_msg1"),
-                                (i + 1),
-                                childJobIds.length,
-                                childJobIds[i],
-                                (triggerChildResult.getCode() == ReturnT.SUCCESS_CODE ? I18nUtil.getString("system_success") : I18nUtil.getString("system_fail")),
-                                triggerChildResult.getMsg());
-                    } else {
-                        callbackMsg += MessageFormat.format(I18nUtil.getString("jobconf_callback_child_msg2"),
-                                (i + 1),
-                                childJobIds.length,
-                                childJobIds[i]);
+                            // add msg
+                            callbackMsg += MessageFormat.format(I18nUtil.getString("jobconf_callback_child_msg1"),
+                                    (i + 1),
+                                    childJobIds.length,
+                                    childJobIds[i],
+                                    (triggerChildResult.getCode() == ReturnT.SUCCESS_CODE ? I18nUtil.getString("system_success") : I18nUtil.getString("system_fail")),
+                                    triggerChildResult.getMsg());
+                        } else {
+                            callbackMsg += MessageFormat.format(I18nUtil.getString("jobconf_callback_child_msg2"),
+                                    (i + 1),
+                                    childJobIds.length,
+                                    childJobIds[i]);
+                        }
                     }
-                }
 
+                }
             }
         }
 
@@ -311,7 +346,7 @@ public class AdminBizImpl implements AdminBiz {
         if (!StringUtils.hasText(registryParam.getRegistryGroup())
                 || !StringUtils.hasText(registryParam.getRegistryKey())
                 || !StringUtils.hasText(registryParam.getRegistryValue())) {
-            return new ReturnT<String>(ReturnT.FAIL_CODE, "Illegal Argument.");
+            return new ReturnT<>(ReturnT.FAIL_CODE, "Illegal Argument.");
         }
 
         int ret = jobRegistryMapper.registryUpdate(registryParam.getRegistryGroup(), registryParam.getRegistryKey(),
@@ -333,7 +368,7 @@ public class AdminBizImpl implements AdminBiz {
         if (!StringUtils.hasText(registryParam.getRegistryGroup())
                 || !StringUtils.hasText(registryParam.getRegistryKey())
                 || !StringUtils.hasText(registryParam.getRegistryValue())) {
-            return new ReturnT<String>(ReturnT.FAIL_CODE, "Illegal Argument.");
+            return new ReturnT<>(ReturnT.FAIL_CODE, "Illegal Argument.");
         }
 
         int ret = jobRegistryMapper.registryDelete(registryParam.getRegistryGroup(), registryParam.getRegistryKey(), registryParam.getRegistryValue());

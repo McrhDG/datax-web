@@ -3,7 +3,6 @@ package com.wugui.datax.admin.mq;
 import com.wugui.datax.admin.canal.CanalRabbitListener;
 import com.wugui.datax.admin.constants.ProjectConstant;
 import com.wugui.datax.admin.core.conf.JobAdminConfig;
-import com.wugui.datax.admin.mongo.MongoRabbitListener;
 import com.wugui.datax.admin.util.SpringContextHolder;
 import org.springframework.amqp.core.*;
 import org.springframework.amqp.rabbit.connection.AbstractConnectionFactory;
@@ -46,17 +45,6 @@ public class RabbitConfig {
         container.setConnectionFactory(connectionFactory);
         container.setAcknowledgeMode(AcknowledgeMode.MANUAL);
         container.setMessageListener(new CanalRabbitListener());
-        container.setPrefetchCount(1);
-        container.setConsumersPerQueue(1);
-        return container;
-    }
-
-    @Bean
-    public DirectMessageListenerContainer mongoMessageListenerContainer(AbstractConnectionFactory connectionFactory){
-        DirectMessageListenerContainer container = new DirectMessageListenerContainer();
-        container.setConnectionFactory(connectionFactory);
-        container.setAcknowledgeMode(AcknowledgeMode.MANUAL);
-        container.setMessageListener(new MongoRabbitListener());
         container.setPrefetchCount(1);
         container.setConsumersPerQueue(1);
         return container;
