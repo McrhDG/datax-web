@@ -45,6 +45,7 @@ public class CanalRabbitListener implements ChannelAwareMessageListener {
 		String body = new String(message.getBody());
 		Connection connection = null;
 		List<CanalJobInfo> canalJobInfos = null;
+		List<String> sqlList = new ArrayList<>();
 		try {
 			canalJobInfos = MAPPER.readValue(body, new TypeReference<List<CanalJobInfo>>(){});
 			ConvertInfo convertInfo = IncrementUtil.getConvertInfo(jobId);
@@ -60,7 +61,6 @@ public class CanalRabbitListener implements ChannelAwareMessageListener {
 			//手动提交
 			connection.setAutoCommit(false);
 			Statement statement = connection.createStatement();
-			List<String> sqlList = new ArrayList<>();
 			String sql;
 			for (CanalJobInfo canalJobInfo : canalJobInfos) {
 				switch (canalJobInfo.getEventType()) {
@@ -105,6 +105,9 @@ public class CanalRabbitListener implements ChannelAwareMessageListener {
 			channel.basicReject(message.getMessageProperties().getDeliveryTag(), false);
 		} catch (Exception e) {
 			log.error("jobId:{}, Exception:", jobId, e);
+			for (String sql : sqlList) {
+				log.error("jobId:{}, sql:【{}】", jobId, sql);
+			}
 			if (connection!=null) {
 				connection.rollback();
 			}
@@ -188,7 +191,7 @@ public class CanalRabbitListener implements ChannelAwareMessageListener {
 			if (Types.BIT == sqlType || Types.TINYINT == sqlType || Types.SMALLINT == sqlType || Types.INTEGER == sqlType || Types.BIGINT == sqlType ||Types.FLOAT == sqlType || Types.DOUBLE == sqlType || Types.NUMERIC == sqlType || Types.DECIMAL == sqlType) {
 				return value;
 			} else {
-				return "'"+value+"'";
+				return "'"+value.replace("'", "''")+"'";
 			}
 		}
 	}

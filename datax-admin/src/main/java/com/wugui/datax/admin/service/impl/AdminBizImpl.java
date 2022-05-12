@@ -141,22 +141,23 @@ public class AdminBizImpl implements AdminBiz {
             CanalJobInfo canalJobInfo;
             Map<String, ColumnValue> updateMap;
             Map<String, ColumnValue> conditionMap;
+            String idValue = incrementSyncWaiting.getIdValue();
             switch (operationType) {
                 case "INSERT":
                     updateMap = JSON.parseObject(content, new TypeReference<Map<String, ColumnValue>>() {});
-                    canalJobInfo = CanalJobInfo.builder().eventType(CanalEntry.EventType.INSERT).updateColumns(updateMap).build();
+                    canalJobInfo = CanalJobInfo.builder().eventType(CanalEntry.EventType.INSERT).updateColumns(updateMap).idValue(idValue).build();
                     canalJobInfos.add(canalJobInfo);
                     break;
                 case "UPDATE":
                 case "REPLACE":
                     updateMap = JSON.parseObject(content, new TypeReference<Map<String, ColumnValue>>() {});
                     conditionMap = JSON.parseObject(condition, new TypeReference<Map<String, ColumnValue>>() {});
-                    canalJobInfo = CanalJobInfo.builder().eventType(CanalEntry.EventType.UPDATE).updateColumns(updateMap).conditionColumns(conditionMap).build();
+                    canalJobInfo = CanalJobInfo.builder().eventType(CanalEntry.EventType.UPDATE).updateColumns(updateMap).conditionColumns(conditionMap).idValue(idValue).build();
                     canalJobInfos.add(canalJobInfo);
                     break;
                 case "DELETE":
                     conditionMap = JSON.parseObject(condition, new TypeReference<Map<String, ColumnValue>>() {});
-                    canalJobInfo = CanalJobInfo.builder().eventType(CanalEntry.EventType.DELETE).conditionColumns(conditionMap).build();
+                    canalJobInfo = CanalJobInfo.builder().eventType(CanalEntry.EventType.DELETE).conditionColumns(conditionMap).idValue(idValue).build();
                     canalJobInfos.add(canalJobInfo);
                     break;
                 default:
