@@ -414,8 +414,9 @@ public class IncrementUtil {
     /**
      * 移除任务
      * @param jobInfo
+     * @param delete
      */
-    public static void removeTask(JobInfo jobInfo) {
+    public static void removeTask(JobInfo jobInfo, boolean delete) {
         try{
             JSONObject content = IncrementUtil.getContent(jobInfo);
             if (content==null) {
@@ -460,11 +461,13 @@ public class IncrementUtil {
             }
             CONVERT_INFO_MAP.remove(jobInfo.getId());
 
-            removeMessageListenerContainer(jobInfo);
+            if (delete) {
+                removeMessageListenerContainer(jobInfo);
+            }
 
             //jobInfo.setIncrementSyncType(null);
             jobInfo.setIncrementSyncTime(null);
-            log.info("jobId:{}, removeTask", jobInfo.getId());
+            log.info("jobId:{}, removeTask, delete:{}", jobInfo.getId(), delete);
         } catch (Exception e) {
             log.error("removeTask error:", e);
         }
@@ -481,7 +484,10 @@ public class IncrementUtil {
             String queueName = String.format(ProjectConstant.CANAL_JOB_QUEUE_FORMAT, jobInfo.getId());
             container.removeQueueNames(queueName);
             RabbitAdmin rabbitAdmin = SpringContextHolder.getBean(RabbitAdmin.class);
-            rabbitAdmin.deleteQueue(queueName);
+            QueueInformation queueInfo = rabbitAdmin.getQueueInfo(queueName);
+            if (queueInfo!=null && queueInfo.getConsumerCount()<=1) {
+                rabbitAdmin.deleteQueue(queueName);
+            }
         }
     }
 

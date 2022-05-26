@@ -28,8 +28,10 @@ public class EndpointSyncListener {
     @RabbitHandler
     public void process(@Payload JobInfo jobInfo, @Header String sourceIp, @Header String type) {
         if (!JobAdminConfig.getAdminConfig().getIp().equals(sourceIp)) {
-            if (ProjectConstant.ACTION_TYPE.REMOVE.val().equals(type)) {
-                IncrementUtil.removeTask(jobInfo);
+            if (ProjectConstant.ACTION_TYPE.DELETE.val().equals(type)) {
+                IncrementUtil.removeTask(jobInfo, true);
+            } else if (ProjectConstant.ACTION_TYPE.REMOVE.val().equals(type)) {
+                IncrementUtil.removeTask(jobInfo, false);
             } else if (ProjectConstant.ACTION_TYPE.TRIGGER.val().equals(type)) {
                 IncrementUtil.initIncrementData(jobInfo, true);
                 IncrementUtil.addQueue(jobInfo);

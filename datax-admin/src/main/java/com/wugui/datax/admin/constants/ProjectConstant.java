@@ -94,7 +94,9 @@ public class ProjectConstant {
         /** update*/
         UPDATE("update"),
         /** remove*/
-        REMOVE("remove");
+        REMOVE("remove"),
+        /** delete*/
+        DELETE("delete");;
 
         private final String val;
 

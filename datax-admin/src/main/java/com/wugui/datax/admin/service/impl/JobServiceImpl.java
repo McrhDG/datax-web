@@ -238,7 +238,7 @@ public class JobServiceImpl implements JobService {
         boolean isDiffContent = isDiffContent(exists_jobInfo, jobInfo);
         MessageProducerService messageProducerService = null;
         if (isDiffContent) {
-            IncrementUtil.removeTask(exists_jobInfo);
+            IncrementUtil.removeTask(exists_jobInfo, false);
             //同步到其他端点
             messageProducerService = JobAdminConfig.getAdminConfig().getMessageProducerService();
             messageProducerService.sendMsg(exists_jobInfo, ProjectConstant.ENDPOINT_SYNC_ROUTING_KEY, message -> {
@@ -336,12 +336,12 @@ public class JobServiceImpl implements JobService {
             return ReturnT.SUCCESS;
         }
         //移除任务
-        IncrementUtil.removeTask(xxlJobInfo);
+        IncrementUtil.removeTask(xxlJobInfo, true);
         //同步到其他端点
         MessageProducerService messageProducerService = JobAdminConfig.getAdminConfig().getMessageProducerService();
         messageProducerService.sendMsg(xxlJobInfo, ProjectConstant.ENDPOINT_SYNC_ROUTING_KEY, message -> {
             message.getMessageProperties().getHeaders().put(ProjectConstant.SOURCE_IP, JobAdminConfig.getAdminConfig().getIp());
-            message.getMessageProperties().getHeaders().put(ProjectConstant.TYPE, ProjectConstant.ACTION_TYPE.REMOVE.val());
+            message.getMessageProperties().getHeaders().put(ProjectConstant.TYPE, ProjectConstant.ACTION_TYPE.DELETE.val());
             return message;
         });
 
